@@ -29,8 +29,8 @@ def analyze_photo(image_bytes):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = hf_client.chat.completions.create(
             model="Qwen/Qwen2.5-VL-72B-Instruct",
-            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар для карточки маркетплейса. Напиши строго на русском языке: что это и какого он цвета."}]}],
-            max_tokens=50
+            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}}"}}, {"type": "text", "text": "Опиши товар строго на русском языке. Что это? Какого цвета? Из какого материала?"}]}],
+            max_tokens=100
         )
         return response.choices[0].message.content
     except:
@@ -41,14 +41,14 @@ def create_card(product_bytes, description):
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
 
-        prompt = f"""Создай профессиональную карточку товара для Wildberries на основе этого изображения.
+        # Исправленный промт для Qwen-Image-Edit
+        prompt = f"""На основе этого изображения создай карточку товара для Wildberries.
         Товар: {description}.
-        Требования к фону:
-        - Помести товар на минималистичный, светлый, студийный фон.
-        - Оставь свободное пространство слева или справа от товара для будущего текста.
-        - Никакого текста на изображении! Только фон и товар.
-        - Стиль: чистый, коммерческий, высокое качество.
-        - Освещение: мягкое, студийное.
+        Инструкция:
+        1. Помести товар на минималистичный, светлый, студийный фон.
+        2. Свободное пространство справа от товара.
+        3. НИКАКОГО текста на изображении.
+        4. Только фон и товар. Не добавляй от себя другие предметы.
         """
 
         messages = [{
@@ -90,14 +90,11 @@ def add_text_overlay(image_url, description):
         draw = ImageDraw.Draw(overlay)
 
         # Настройки текста
-        # ВАЖНО: Загрузите любой .ttf шрифт в папку с main.py и пропишите путь к нему.
-        # font_large = ImageFont.truetype("путь_к_вашему_шрифту.ttf", 60)
-        # font_small = ImageFont.truetype("путь_к_вашему_шрифту.ttf", 30)
-        # Пока используем стандартный шрифт
+        # Используем стандартный шрифт
         font_large = ImageFont.load_default()
         font_small = ImageFont.load_default()
         
-        # Координаты для текста (справа, занимает 40% ширины)
+        # Координаты для текста
         x_pos = int(img.width * 0.55)
         y_pos_top = 50
 
@@ -106,16 +103,13 @@ def add_text_overlay(image_url, description):
         panel_height = img.height - 100
         draw.rectangle([x_pos - 10, y_pos_top - 10, x_pos + panel_width, y_pos_top + panel_height], fill=(255, 255, 255, 150))
 
-        # Заголовок УТП
-        draw.text((x_pos, y_pos_top + 20), "🔥 ХИТ ПРОДАЖ", fill=(0, 0, 0), font=font_large)
-        
-        # Характеристики
+        # Текст
+        draw.text((x_pos, y_pos_top + 20), "ХИТ ПРОДАЖ", fill=(0, 0, 0), font=font_large)
         draw.text((x_pos, y_pos_top + 120), f"{description}", fill=(50, 50, 50), font=font_small)
         draw.text((x_pos, y_pos_top + 180), "✔ Премиум качество", fill=(50, 50, 50), font=font_small)
         draw.text((x_pos, y_pos_top + 230), "✔ Быстрая доставка", fill=(50, 50, 50), font=font_small)
-        draw.text((x_pos, y_pos_top + 280), "✔ Выгодная цена", fill=(50, 50, 50), font=font_small)
 
-        # Накладываем слой на изображение
+        # Накладываем слой
         img = Image.alpha_composite(img, overlay)
         
         # Сохраняем в поток
