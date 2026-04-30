@@ -193,18 +193,16 @@ def handle_photo(message):
             bot.send_message(message.chat.id, "❌ Не удалось обработать фото.")
             return
         
-        # 2. Создание дизайнерской карточки
+        # 2. Создание дизайнерской карточки (без текста)
         card_url = create_card(retouched_url, content['title'], content['phrases'])
         
         if card_url:
-            bot.send_photo(message.chat.id, card_url, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
-        else:
-            bot.send_message(message.chat.id, "❌ Не удалось создать карточку.")
-            
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
-    finally:
-        bot.delete_message(message.chat.id, wait_msg.message_id)
+            # 3. Накладываем русский текст
+            final_card = add_text_overlay(card_url, content['title'], content['phrases'])
+            if final_card:
+                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
+            else:
+                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(content['phrases'])}")
 
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
