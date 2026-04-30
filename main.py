@@ -1,5 +1,6 @@
 import os
 import telebot
+from flask import Flask, request
 from huggingface_hub import InferenceClient
 import base64
 import replicate
@@ -16,6 +17,7 @@ os.environ["REPLICATE_API_TOKEN"] = REPLICATE_TOKEN
 
 bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
+app = Flask(__name__)
 
 # --- ФУНКЦИИ ОБРАБОТКИ ---
 def analyze_photo(image_bytes):
@@ -59,17 +61,12 @@ def handle_photo(message):
     wait_msg = bot.reply_to(message, "⏳ Обрабатываю... (секунд 15-20)")
     
     try:
-        # Скачиваем фото
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # Сразу присылаем исходное фото пользователю, чтобы он его видел
         bot.send_photo(message.chat.id, downloaded_file, caption="📷 Ваше исходное фото")
         
-        # Анализируем
         desc = analyze_photo(downloaded_file)
-        
-        # Генерируем фон
         bg_url = generate_background(desc)
         
         if bg_url:
@@ -82,5 +79,27 @@ def handle_photo(message):
     finally:
         bot.delete_message(message.chat.id, wait_msg.message_id)
 
-print("Бот запущен...")
-bot.infinity_polling()
+# --- WEBHOOK (Flask) ---
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return '', 403
+
+@app.route('/')
+def index():
+    return "Бот работает!"
+
+if __name__ == '__main__':
+    # Устанавливаем Webhook
+    railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway_url:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"https://{railway_url}/webhook")
+        print(f"Webhook установлен: https://{railway_url}/webhook")
+    
+    print("Бот запущен...")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 3000)))
