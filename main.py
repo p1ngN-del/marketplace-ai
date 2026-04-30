@@ -46,19 +46,53 @@ def analyze_photo(image_bytes):
         return {"name": "товар", "color": "белый", "material": "пластик"}
 
 def generate_description(product_data):
-    """Генерирует короткие УТП и преимущества на основе данных о товаре."""
+    """Генерирует полное маркетинговое ТЗ на основе вашего промпта."""
     try:
-        prompt = f"Ты — маркетолог. Придумай для товара '{product_data['name']}' (цвет: {product_data['color']}, материал: {product_data['material']}) 3 коротких продающих преимущества. Каждое преимущество — строго до 5 слов. Ответь на русском языке, каждое преимущество с новой строки."
+        prompt = f"""Ты — ведущий e-commerce-стратег.
+        Товар: {product_data['name']}, цвет: {product_data['color']}, материал: {product_data['material']}.
+        СГЕНЕРИРУЙ КОНТЕНТ ЧЕТКО ПО СТРУКТУРЕ:
+        1. SEO-ЗАГОЛОВОК (до 120 символов): Сгенерируй 1 вариант.
+        2. ПРОДАЮЩЕЕ ОПИСАНИЕ (200-300 символов, без воды):
+           - Крючок (1 предл.)
+           - Ключевые фишки (буллиты, 3-4 шт.)
+        3. ТЕХНИЧЕСКОЕ ЗАДАНИЕ (ТЗ) ДЛЯ ГЕНЕРАЦИИ ФОНА:
+           - Главное фото: Опиши идеальный фон для этого товара.
+           - Инфографика: 3-4 коротких фразы (до 5 слов) для плашек на карточке.
+        Ответь СТРОГО на русском языке."""
+        
         response = hf_client.chat.completions.create(
-            model="Qwen/Qwen2.5-VL-72B-Instruct",
+            model="Qwen/Qwen2.5-VL-72B-Instruct", # Используем текстовую модель для генерации текста
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
+            max_tokens=500
         )
-        # Разбиваем ответ на список преимуществ
-        lines = response.choices[0].message.content.split('\n')
-        return [line.strip() for line in lines if line.strip()][:3]
+        return response.choices[0].message.content
     except:
-        return ["Премиум качество", "Стильный дизайн", "Выгодная цена"]
+        return "Стильный и надежный товар для вашего комфорта."
+
+def parse_ai_response(ai_text):
+    """Парсит ответ ИИ и извлекает заголовок, преимущества и фон."""
+    import re
+    # Извлекаем заголовок
+    title_match = re.search(r"SEO-ЗАГОЛОВОК.*:(.*)", ai_text)
+    title = title_match.group(1).strip() if title_match else "Лучший выбор"
+    
+    # Извлекаем фразы для инфографики
+    phrases_match = re.search(r"Инфографика.*:(.*)", ai_text)
+    if phrases_match:
+        phrases_text = phrases_match.group(1)
+        phrases = [p.strip() for p in phrases_text.split('-') if len(p.strip()) > 3]
+    else:
+        phrases = ["Премиум качество", "Стильный дизайн", "Выгодная цена"]
+    
+    # Извлекаем фон для ТЗ
+    bg_match = re.search(r"Главное фото.*:(.*)", ai_text)
+    bg_description = bg_match.group(1).strip() if bg_match else "минималистичный студийный фон"
+    
+    return {
+        "title": title,
+        "phrases": phrases,
+        "bg_description": bg_description
+    }
 
 # --- РАБОТА С ИЗОБРАЖЕНИЕМ ---
 def create_card(product_bytes, product_data):
