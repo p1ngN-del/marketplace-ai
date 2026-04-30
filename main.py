@@ -137,33 +137,36 @@ def create_card(product_bytes, product_data):
         return None
 
 def add_text_overlay(image_url, title, phrases):
-    """Накладывает стильный, минималистичный текст."""
+    """Накладывает стильный текст шрифтом Montserrat."""
     try:
         with urllib.request.urlopen(image_url) as f:
             img = Image.open(io.BytesIO(f.read())).convert("RGBA")
         draw = ImageDraw.Draw(img)
 
-        # Загружаем стильный шрифт
+        # Загружаем НАШИ шрифты Montserrat
         try:
-            font_title = ImageFont.truetype("font.ttf", 70)
-            font_text = ImageFont.truetype("font.ttf", 35)
-        except:
+            # Явно указываем файлы, которые загрузили на GitHub
+            font_title = ImageFont.truetype("font_bold.ttf", 75)  # Жирный для заголовка H1
+            font_text = ImageFont.truetype("font_regular.ttf", 35) # Обычный для преимуществ H2
+        except Exception as font_error:
+            print(f"Ошибка загрузки шрифта Montserrat: {font_error}. Использую стандартный.")
             font_title = ImageFont.load_default()
             font_text = ImageFont.load_default()
 
-        # --- 1. Заголовок (вверху по центру, с тенью) ---
+        # --- Заголовок (H1) ---
         title_x = int(img.width / 2)
         title_y = 40
+        # Тень для читаемости по правилам контраста
         draw.text((title_x+3, title_y+3), title, font=font_title, fill=(0, 0, 0, 180), anchor="mt")
         draw.text((title_x, title_y), title, font=font_title, fill=(255, 255, 255), anchor="mt")
 
-        # --- 2. Плашки с преимуществами (слева, вертикально) ---
+        # --- Офферы (H2) ---
         y_start = int(img.height * 0.25)
         for i, phrase in enumerate(phrases):
-            y_pos = y_start + i * 60
-            # Рисуем полупрозрачную плашку
-            draw.rounded_rectangle([20, y_pos, 350, y_pos + 45], radius=5, fill=(0, 0, 0, 120))
-            # Текст на плашке
+            y_pos = y_start + i * 65 # Увеличили отступ, чтобы текст "дышал" (правило "воздуха")
+            # Плашка для контраста
+            draw.rounded_rectangle([20, y_pos, 400, y_pos + 50], radius=5, fill=(0, 0, 0, 150))
+            # Белый текст на темной плашке - идеальный контраст по правилам статьи
             draw.text((35, y_pos + 5), phrase, font=font_text, fill=(255, 255, 255))
 
         output = io.BytesIO()
