@@ -109,23 +109,13 @@ def retouch_photo(product_bytes):
         return None
 
 def create_card(product_url, title, phrases):
-    """Шаг 2: Создание стильной карточки с помощью Qwen-Image-2.0-Pro."""
+    """Шаг 2: Создание стильной карточки БЕЗ текста."""
     try:
-        # Промпт-ТЗ для дизайнера (без ссылок на Google Drive)
-        prompt = f"""Ты — ведущий дизайнер для карточек товаров Wildberries и Ozon. Создай премиальный визуал для этого товара.
-        ПРАВИЛА ДИЗАЙНА (нарушать нельзя):
-        1. **Фон:** Чистый, студийный, с мягким градиентом. Товар занимает 60-70% пространства слева или по центру. Никакого лишнего реквизита.
-        2. **Текст:**
-           - Заголовок (КРУПНО): "{title}".
-           - Преимущества (в столбик справа): {', '.join(phrases)}.
-        3. **Иерархия:**
-           - Заголовок — самый крупный и жирный шрифт, например, Montserrat Bold.
-           - Преимущества — средний размер, шрифт Montserrat Regular, каждая фраза с новой строки.
-        4. **Расположение текста:** Справа от товара, на полупрозрачной плашке для контраста.
-        5. **Контраст:** Текст должен быть белым на темной плашке или черным на светлой. Проверь, чтобы он читался.
-        6. **Безопасные зоны:** Не размещай важный текст ближе 50 пикселей к краям. Верхний правый угол и низ карточки должны остаться пустыми.
-        7. **Стиль:** Современный, минималистичный, дорогой. Никаких кричащих цветов.
-        Создай изображение.
+        prompt = f"""Создай дизайн карточки товара для Wildberries.
+        ПРАВИЛА:
+        1. Товар занимает 60% пространства слева. Справа — широкая полупрозрачная черная плашка для будущего текста.
+        2. НЕ ПИШИ НИКАКОГО ТЕКСТА НА ИЗОБРАЖЕНИИ. Только фон, товар и пустая плашка для текста.
+        3. Стиль: студийный свет, минимализм, дорогой вид.
         """
 
         messages = [{"role": "user", "content": [{"image": product_url}, {"text": prompt}]}]
@@ -141,6 +131,43 @@ def create_card(product_url, title, phrases):
         else:
             return None
     except:
+        return None
+
+def add_text_overlay(image_url, title, phrases):
+    """Накладывает стильный русский текст с помощью Pillow."""
+    try:
+        with urllib.request.urlopen(image_url) as f:
+            img = Image.open(io.BytesIO(f.read())).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+
+        # Загружаем шрифты (убедитесь, что файлы font_bold.ttf и font_regular.ttf лежат на GitHub)
+        try:
+            font_title = ImageFont.truetype("font_bold.ttf", 70)
+            font_text = ImageFont.truetype("font_regular.ttf", 35)
+        except:
+            font_title = ImageFont.load_default()
+            font_text = ImageFont.load_default()
+
+        # --- Заголовок (поверх плашки справа) ---
+        title_x = int(img.width * 0.58)
+        title_y = int(img.height * 0.15)
+        draw.text((title_x+3, title_y+3), title, font=font_title, fill=(0, 0, 0, 180)) # Тень
+        draw.text((title_x, title_y), title, font=font_title, fill=(255, 255, 255)) # Белый текст
+
+        # --- Преимущества (под заголовком) ---
+        text_x = int(img.width * 0.58)
+        text_y = int(img.height * 0.35)
+        for i, phrase in enumerate(phrases):
+            y_pos = text_y + i * 60
+            draw.text((text_x+2, y_pos+2), f"• {phrase}", font=font_text, fill=(0, 0, 0, 180)) # Тень
+            draw.text((text_x, y_pos), f"• {phrase}", font=font_text, fill=(255, 255, 255)) # Текст
+
+        output = io.BytesIO()
+        img.save(output, format='PNG')
+        output.seek(0)
+        return output
+    except Exception as e:
+        print(f"Ошибка наложения текста: {e}")
         return None
 
 # --- TELEGRAM БОТ ---
