@@ -3,92 +3,85 @@ import telebot
 from flask import Flask, request
 from huggingface_hub import InferenceClient
 import base64
-import replicate
-from rembg import remove
-from PIL import Image
-import io
-import urllib.request
-import threading
+import dashscope
+from dashscope import MultiModalConversation
 
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
-REPLICATE_TOKEN = os.environ.get("REPLICATE_TOKEN")
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")  # Ваш ключ от Alibaba Cloud
 
-if not all([TG_TOKEN, HF_TOKEN, REPLICATE_TOKEN]):
+if not all([TG_TOKEN, HF_TOKEN, DASHSCOPE_API_KEY]):
     raise Exception("Не хватает токенов! Проверьте переменные на Railway.")
 
-os.environ["REPLICATE_API_TOKEN"] = REPLICATE_TOKEN
+# Настраиваем международный эндпоинт для DashScope
+dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
 
 bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
-# --- ФУНКЦИИ ОБРАБОТКИ (те же, но с rembg) ---
+# --- ФУНКЦИИ ОБРАБОТКИ ---
 def analyze_photo(image_bytes):
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = hf_client.chat.completions.create(
             model="Qwen/Qwen2.5-VL-72B-Instruct",
-            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши товар кратко: Название и цвет."}]}],
+            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар кратко: что это и какого он цвета."}]}],
             max_tokens=50
         )
         return response.choices[0].message.content
     except:
-        return "Product"
+        return "product"
 
-def generate_background(desc):
+def create_card(product_bytes, description):
+    """Редактирует фото с помощью Qwen-Image-Edit, помещая товар на новый фон."""
     try:
-        prompt = f"Minimalist professional background for {desc}. Soft lighting, clean, 8k, empty space in center."
-        output = replicate.run("black-forest-labs/flux-dev", input={"prompt": prompt, "aspect_ratio": "3:4", "output_quality": 90})
-        return output[0]
-    except:
-        return None
+        # Кодируем фото в base64 для отправки
+        base64_image = base64.b64encode(product_bytes).decode('utf-8')
+        image_url = f"data:image/jpeg;base64,{base64_image}"
 
-def create_card(product_bytes, bg_url):
-    """Склеивает товар без фона с новым фоном, используя БЕСПЛАТНЫЙ rembg"""
-    try:
-        # 1. Удаляем фон с помощью rembg (бесплатно и без лимитов)
-        input_img = Image.open(io.BytesIO(product_bytes))
-        no_bg_img = remove(input_img)
+        # Формируем промпт для редактирования
+        prompt = f"Помести этот {description} на минималистичный профессиональный фон для маркетплейса, студийное освещение, высокое качество, пустое пространство по центру"
         
-        # 2. Качаем фон
-        with urllib.request.urlopen(bg_url) as resp:
-            bg_img = Image.open(io.BytesIO(resp.read())).convert("RGBA")
-            
-        # 3. Подгоняем размер
-        ratio = 0.7
-        h = int(bg_img.height * ratio)
-        w = int(no_bg_img.width * (h / float(no_bg_img.height)))
-        no_bg_img = no_bg_img.resize((w, h), Image.LANCZOS)
-        
-        # 4. Вставляем в центр
-        pos = ((bg_img.width - w) // 2, (bg_img.height - h) // 2)
-        bg_img.paste(no_bg_img, pos, no_bg_img)
-        
-        # 5. Сохраняем
-        out = io.BytesIO()
-        bg_img.save(out, format='PNG')
-        out.seek(0)
-        return out
+        messages = [{
+            "role": "user",
+            "content": [
+                {"image": image_url},
+                {"text": prompt}
+            ]
+        }]
+
+        # Вызываем Qwen-Image-Edit через DashScope
+        response = MultiModalConversation.call(
+            api_key=DASHSCOPE_API_KEY,
+            model="qwen-image-edit-plus", # Быстрая и качественная модель редактирования
+            messages=messages,
+            n=1,
+            watermark=False,
+            size="1024*1536" # Вертикальный формат для маркетплейсов
+        )
+
+        if response.status_code == 200:
+            # Получаем URL сгенерированного изображения
+            result_url = response.output.choices[0].message.content[0]['image']
+            return result_url
+        else:
+            print(f"Ошибка Qwen-Image-Edit: {response.message}")
+            return None
     except Exception as e:
-        print(f"Ошибка склейки: {e}")
+        print(f"Ошибка создания карточки: {e}")
         return None
 
-# --- TELEGRAM БОТ (с фоновой обработкой) ---
+# --- TELEGRAM БОТ ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     bot.reply_to(message, "Привет! Пришли фото, и я превращу его в карточку для маркетплейса.")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    # Мгновенно отвечаем, чтобы избежать тайм-аута
-    wait_msg = bot.reply_to(message, "⏳ Фото принято! Начинаю обработку... Это может занять до 2 минут.")
+    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 15-20 секунд.")
     
-    # Запускаем тяжелую обработку в фоновом потоке
-    threading.Thread(target=process_and_send, args=(message, wait_msg)).start()
-
-def process_and_send(message, wait_msg):
     try:
         # Скачиваем фото
         file_info = bot.get_file(message.photo[-1].file_id)
@@ -97,28 +90,18 @@ def process_and_send(message, wait_msg):
         # Анализируем
         desc = analyze_photo(downloaded_file)
         
-        # Генерируем фон
-        bg_url = generate_background(desc)
+        # Создаём карточку с помощью Qwen-Image-Edit
+        card_url = create_card(downloaded_file, desc)
         
-        if bg_url:
-            # Склеиваем (самая долгая часть)
-            final_card = create_card(downloaded_file, bg_url)
-            
-            if final_card:
-                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{desc}")
-            else:
-                bot.send_photo(message.chat.id, bg_url, caption=f"⚠️ Не удалось склеить, но вот фон к вашему товару: {desc}")
+        if card_url:
+            bot.send_photo(message.chat.id, card_url, caption=f"✅ Готовая карточка!\n{desc}")
         else:
-            bot.send_message(message.chat.id, "❌ Ошибка генерации фона. Возможно, закончился баланс Replicate.")
+            bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото.")
             
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Критическая ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
     finally:
-        # Удаляем сообщение "⏳ Фото принято..."
-        try:
-            bot.delete_message(message.chat.id, wait_msg.message_id)
-        except:
-            pass
+        bot.delete_message(message.chat.id, wait_msg.message_id)
 
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
