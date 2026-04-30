@@ -103,41 +103,27 @@ def create_card(product_bytes, product_data):
         return None
 
 def add_text_overlay(image_url, features):
-    """Стильно накладывает текст на готовую картинку."""
+    """Накладывает четкий, структурированный текст на готовую картинку."""
     try:
         # Загружаем изображение по URL
         with urllib.request.urlopen(image_url) as f:
             img = Image.open(io.BytesIO(f.read())).convert("RGBA")
 
-        # Создаем отдельный слой для рисования
-        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
-
-        # Используем стандартный шрифт
+        draw = ImageDraw.Draw(img)
+        
+        # ИСПОЛЬЗУЕМ СТАНДАРТНЫЙ ШРИФТ, КОТОРЫЙ ТОЧНО ПОДДЕРЖИВАЕТ РУССКИЙ
         font = ImageFont.load_default()
+        
+        # --- 1. Заголовок УТП (вверху слева) ---
+        draw.text((30, 30), "ХИТ ПРОДАЖ", fill=(255, 255, 255), font=font)
 
-        # --- 1. Логотип или плашка "ХИТ" вверху слева (заменяем красный прямоугольник) ---
-        draw.ellipse([20, 20, 110, 110], fill=(255, 80, 80, 220)) # Красный круг
-        draw.text((35, 55), "ХИТ", fill=(255, 255, 255, 255), font=font)
-
-        # --- 2. Преимущества товара в виде списка справа ---
+        # --- 2. Преимущества (справа по центру) ---
         x_pos = int(img.width * 0.55)
-        y_pos_top = 150
-        panel_width = int(img.width * 0.4)
-
-        # Рисуем полупрозрачную подложку под текст, чтобы он читался на любом фоне
-        panel_height = len(features) * 50 + 40
-        draw.rounded_rectangle([x_pos - 20, y_pos_top - 20, x_pos + panel_width, y_pos_top + panel_height], radius=5, fill=(0, 0, 0, 130))
-
-        # Выводим каждое преимущество с иконкой
+        y_pos = int(img.height * 0.4)
         for i, feature in enumerate(features):
-            y_offset = y_pos_top + i * 50
-            draw.text((x_pos, y_offset), f"✅ {feature}", fill=(255, 255, 255, 255), font=font)
+            draw.text((x_pos, y_pos + i * 40), f"• {feature}", fill=(255, 255, 255), font=font)
 
-        # Накладываем слой с текстом на исходное изображение
-        img = Image.alpha_composite(img, overlay)
-
-        # Сохраняем результат в памяти
+        # Сохраняем результат
         output = io.BytesIO()
         img.save(output, format='PNG')
         output.seek(0)
