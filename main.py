@@ -199,16 +199,12 @@ def handle_photo(message):
         card_url = create_card(downloaded_file, product_data)
         
         if card_url:
-            # 4. Стильное наложение текста
+            # 4. Стильное наложение текста (исправленная строка)
             final_card = add_text_overlay(card_url, content['title'], content['phrases'])
-        
-        if card_url:
-            # 4. Стильное наложение текста
-            final_card = add_text_overlay(card_url, features)
             if final_card:
-                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(features)}")
+                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
             else:
-                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(features)}")
+                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(content['phrases'])}")
         else:
             bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото.")
             
