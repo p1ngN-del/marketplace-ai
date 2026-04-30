@@ -1,3 +1,6 @@
 flask
 huggingface_hub
 pytelegrambotapi==4.15.0
+replicate
+rembg[gpu]
+pillow
