@@ -5,6 +5,9 @@ from huggingface_hub import InferenceClient
 import base64
 import dashscope
 from dashscope import MultiModalConversation
+from PIL import Image, ImageDraw, ImageFont
+import io
+import urllib.request
 
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
@@ -14,7 +17,6 @@ DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")
 if not all([TG_TOKEN, HF_TOKEN, DASHSCOPE_API_KEY]):
     raise Exception("Не хватает токенов! Проверьте переменные на Railway.")
 
-# Настраиваем международный эндпоинт для DashScope
 dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
 
 bot = telebot.TeleBot(TG_TOKEN)
@@ -39,7 +41,6 @@ def create_card(product_bytes, description):
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
 
-        # Обновленный "маркетинговый" промт
         prompt = f"""Создай профессиональную карточку товара для Wildberries на основе этого изображения.
         Товар: {description}.
         Требования к фону:
@@ -77,6 +78,55 @@ def create_card(product_bytes, description):
         print(f"Ошибка создания карточки: {e}")
         return None
 
+def add_text_overlay(image_url, description):
+    """Накладывает текст УТП на готовую картинку, используя PIL."""
+    try:
+        # Загружаем изображение по URL
+        with urllib.request.urlopen(image_url) as f:
+            img = Image.open(io.BytesIO(f.read())).convert("RGBA")
+
+        # Создаем слой для рисования
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # Настройки текста
+        # ВАЖНО: Загрузите любой .ttf шрифт в папку с main.py и пропишите путь к нему.
+        # font_large = ImageFont.truetype("путь_к_вашему_шрифту.ttf", 60)
+        # font_small = ImageFont.truetype("путь_к_вашему_шрифту.ttf", 30)
+        # Пока используем стандартный шрифт
+        font_large = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+        
+        # Координаты для текста (справа, занимает 40% ширины)
+        x_pos = int(img.width * 0.55)
+        y_pos_top = 50
+
+        # Рисуем полупрозрачную плашку под текст
+        panel_width = int(img.width * 0.4)
+        panel_height = img.height - 100
+        draw.rectangle([x_pos - 10, y_pos_top - 10, x_pos + panel_width, y_pos_top + panel_height], fill=(255, 255, 255, 150))
+
+        # Заголовок УТП
+        draw.text((x_pos, y_pos_top + 20), "🔥 ХИТ ПРОДАЖ", fill=(0, 0, 0), font=font_large)
+        
+        # Характеристики
+        draw.text((x_pos, y_pos_top + 120), f"{description}", fill=(50, 50, 50), font=font_small)
+        draw.text((x_pos, y_pos_top + 180), "✔ Премиум качество", fill=(50, 50, 50), font=font_small)
+        draw.text((x_pos, y_pos_top + 230), "✔ Быстрая доставка", fill=(50, 50, 50), font=font_small)
+        draw.text((x_pos, y_pos_top + 280), "✔ Выгодная цена", fill=(50, 50, 50), font=font_small)
+
+        # Накладываем слой на изображение
+        img = Image.alpha_composite(img, overlay)
+        
+        # Сохраняем в поток
+        output = io.BytesIO()
+        img.save(output, format='PNG')
+        output.seek(0)
+        return output
+    except Exception as e:
+        print(f"Ошибка наложения текста: {e}")
+        return None
+
 # --- TELEGRAM БОТ ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -84,7 +134,7 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 15-20 секунд.")
+    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 20-30 секунд.")
     
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
@@ -94,7 +144,12 @@ def handle_photo(message):
         card_url = create_card(downloaded_file, desc)
         
         if card_url:
-            bot.send_photo(message.chat.id, card_url, caption=f"✅ Готовая карточка!\n{desc}")
+            # Добавляем текст
+            final_card = add_text_overlay(card_url, desc)
+            if final_card:
+                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{desc}")
+            else:
+                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{desc}")
         else:
             bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото.")
             
