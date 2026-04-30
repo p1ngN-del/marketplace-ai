@@ -31,7 +31,7 @@ def analyze_photo_from_bytes(photo_bytes):
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                        {"type": "text", "text": "Ты помощник селлера. Опиши товар для карточки маркетплейса. Верни: 1. Название. 2. Характеристики (цвет, материал). 3. Преимущества."}
+                        {"type": "text", "text": "Ты помощник селлера. Опиши товар для карточки маркетплейса. \nПравила:\n1. Не используй символы #, *, _ или жирный шрифт.\n2. Пиши простым текстом.\n3. Структура ответа:\nНАЗВАНИЕ: (коротко)\nХАРАКТЕРИСТИКИ: (цвет, материал)\nПРЕИМУЩЕСТВА: (3 пункта)\nКЛЮЧЕВЫЕ СЛОВА: (5 слов через запятую)"}
                     ]
                 }
             ],
@@ -49,22 +49,49 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    # Отправляем сообщение "Думаю...", чтобы пользователь не ждал в тишине
-    wait_msg = bot.reply_to(message, "🔍 Анализирую фото... Подождите секунд 10-20...")
+    # Отправляем сообщение "Думаю..."
+    wait_msg = bot.reply_to(message, "🔍 Анализирую фото... Секунду...")
     
     try:
-        # Получаем файл фото из Telegram
+        # Получаем файл фото
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
         # Анализируем
         description = analyze_photo_from_bytes(downloaded_file)
         
-        # Редактируем сообщение "Думаю..." на результат
-        bot.edit_message_text(chat_id=message.chat.id, message_id=wait_msg.message_id, text=f"✅ Готово!\n\n{description}")
+        # Создаем кнопку "Скопировать текст"
+        markup = telebot.types.InlineKeyboardMarkup()
+        btn_copy = telebot.types.InlineKeyboardButton(text="📋 Скопировать описание", callback_data="copy_text")
+        markup.add(btn_copy)
+        
+        # Сохраняем описание во временную память бота, чтобы кнопка знала, что копировать
+        # (Для простоты мы просто отправим текст еще раз при нажатии, но лучше использовать кэш)
+        # В данном простом варианте мы просто отредактируем сообщение
+        
+        # Отправляем красивый ответ с кнопкой
+        bot.edit_message_text(
+            chat_id=message.chat.id, 
+            message_id=wait_msg.message_id, 
+            text=f"✅ Готово!\n\n{description}",
+            reply_markup=markup
+        )
         
     except Exception as e:
-        bot.edit_message_text(chat_id=message.chat.id, message_id=wait_msg.message_id, text=f"❌ Произошла ошибка: {e}")
+        bot.edit_message_text(chat_id=message.chat.id, message_id=wait_msg.message_id, text=f"❌ Ошибка: {e}")
+
+# Обработчик нажатия на кнопку
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    if call.data == "copy_text":
+        # Когда пользователь жмет кнопку, мы присылаем ему текст еще раз, но без кнопки, чтобы он мог его выделить
+        # Или используем метод copy_message, но проще всего отправить текст отдельно
+        bot.answer_callback_query(call.id, "Текст отправлен ниже 👇")
+        
+        # Находим исходное сообщение, чтобы взять оттуда текст
+        # В простом варианте мы просто попросим пользователя скопировать из предыдущего сообщения
+        # Но давайте сделаем хитрее: отправим новый сообщение с текстом
+        bot.send_message(call.message.chat.id, call.message.text.split("✅ Готово!\n\n")[1])
 
 # --- ЗАПУСК WEBHOOK (для Railway) ---
 app = Flask(__name__)
