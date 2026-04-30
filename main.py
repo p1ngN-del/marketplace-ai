@@ -103,7 +103,7 @@ def create_card(product_bytes, product_data):
         return None
 
 def add_text_overlay(image_url, features):
-    """Накладывает четкий, структурированный текст на готовую картинку."""
+    """Накладывает стильный и ЧИТАЕМЫЙ текст с тенью."""
     try:
         # Загружаем изображение по URL
         with urllib.request.urlopen(image_url) as f:
@@ -111,19 +111,32 @@ def add_text_overlay(image_url, features):
 
         draw = ImageDraw.Draw(img)
         
-        # ИСПОЛЬЗУЕМ СТАНДАРТНЫЙ ШРИФТ, КОТОРЫЙ ТОЧНО ПОДДЕРЖИВАЕТ РУССКИЙ
-        font = ImageFont.load_default()
+        # Загружаем наш скачанный шрифт
+        try:
+            font_large = ImageFont.truetype("font.ttf", 60)
+            font_small = ImageFont.truetype("font.ttf", 30)
+        except:
+            # Если шрифт не найден, используем стандартный (запасной вариант)
+            font_large = ImageFont.load_default()
+            font_small = ImageFont.load_default()
         
+        # Функция для рисования текста с тенью (для читаемости)
+        def draw_text_with_shadow(x, y, text, font, fill=(255, 255, 255)):
+            # Рисуем тень (черная, со смещением)
+            draw.text((x+2, y+2), text, font=font, fill=(0, 0, 0))
+            # Рисуем основной текст поверх
+            draw.text((x, y), text, font=font, fill=fill)
+
         # --- 1. Заголовок УТП (вверху слева) ---
-        draw.text((30, 30), "ХИТ ПРОДАЖ", fill=(255, 255, 255), font=font)
+        draw_text_with_shadow(30, 30, "ХИТ ПРОДАЖ", font_large, fill=(255, 80, 80)) # Красный цвет для заголовка
 
         # --- 2. Преимущества (справа по центру) ---
         x_pos = int(img.width * 0.55)
         y_pos = int(img.height * 0.4)
         for i, feature in enumerate(features):
-            draw.text((x_pos, y_pos + i * 40), f"• {feature}", fill=(255, 255, 255), font=font)
+            draw_text_with_shadow(x_pos, y_pos + i * 50, f"• {feature}", font_small)
 
-        # Сохраняем результат
+        # Сохраняем результат в память
         output = io.BytesIO()
         img.save(output, format='PNG')
         output.seek(0)
