@@ -8,6 +8,7 @@ from dashscope import MultiModalConversation
 from PIL import Image, ImageDraw, ImageFont
 import io
 import urllib.request
+import random
 
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
@@ -23,45 +24,57 @@ bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
-# --- ФУНКЦИИ ОБРАБОТКИ ---
+# --- ГЕНЕРАЦИЯ МАРКЕТИНГОВЫХ ДАННЫХ ---
 def analyze_photo(image_bytes):
+    """Анализирует фото и возвращает словарь с информацией о товаре."""
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        messages = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар кратко, одним предложением. Строго на русском языке."}]}]
+        messages = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар для маркетплейса. Верни ответ СТРОГО в формате JSON: {\"name\": \"название\", \"color\": \"основной цвет\", \"material\": \"материал\"}. Без лишнего текста."}]}]
         response = hf_client.chat.completions.create(
             model="Qwen/Qwen2.5-VL-72B-Instruct",
             messages=messages,
-            max_tokens=100
+            max_tokens=150
         )
-        return response.choices[0].message.content
+        # Пытаемся распарсить JSON, если не выходит — возвращаем заглушку
+        import json
+        try:
+            data = json.loads(response.choices[0].message.content)
+            return data
+        except:
+            return {"name": "товар", "color": "белый", "material": "пластик"}
     except:
-        return "современный гаджет"
+        return {"name": "товар", "color": "белый", "material": "пластик"}
 
-def generate_description(product_info):
+def generate_description(product_data):
+    """Генерирует короткие УТП и преимущества на основе данных о товаре."""
     try:
-        prompt = f"Придумай короткое (до 300 символов) продающее описание для этого товара на Wildberries: '{product_info}'. Напиши 2-3 преимущества. Ответь строго на русском языке."
+        prompt = f"Ты — маркетолог. Придумай для товара '{product_data['name']}' (цвет: {product_data['color']}, материал: {product_data['material']}) 3 коротких продающих преимущества. Каждое преимущество — строго до 5 слов. Ответь на русском языке, каждое преимущество с новой строки."
         response = hf_client.chat.completions.create(
             model="Qwen/Qwen2.5-VL-72B-Instruct",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200
+            max_tokens=150
         )
-        return response.choices[0].message.content
+        # Разбиваем ответ на список преимуществ
+        lines = response.choices[0].message.content.split('\n')
+        return [line.strip() for line in lines if line.strip()][:3]
     except:
-        return product_info
+        return ["Премиум качество", "Стильный дизайн", "Выгодная цена"]
 
-def create_card(product_bytes, description):
+# --- РАБОТА С ИЗОБРАЖЕНИЕМ ---
+def create_card(product_bytes, product_data):
+    """Генерирует картинку с динамическим фоном."""
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
 
-        # Промпт, который ЗАПРЕЩАЕТ нейросети писать текст
-        prompt = f"""На основе этого изображения создай карточку товара для Wildberries.
-        Товар: {description}.
+        # Динамический промпт для фона!
+        prompt = f"""Создай профессиональную карточку товара для Wildberries.
+        Товар: {product_data['name']}, цвет: {product_data['color']}, материал: {product_data['material']}.
         Инструкция:
-        1. Помести товар на минималистичный, светлый, студийный фон.
-        2. Оставь много свободного пространства справа.
-        3. НЕ ДОБАВЛЯЙ НИКАКОГО ТЕКСТА НА ИЗОБРАЖЕНИЕ. Абсолютно никакого!
-        4. Только фон и товар.
+        1. Помести товар на фон, который ИДЕАЛЬНО подходит по стилю и цвету к этому товару.
+        2. Оставь достаточно свободного пространства для текста.
+        3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО рисовать любой текст или буквы на изображении.
+        4. Только фон и товар. Никаких лишних предметов.
         """
 
         messages = [{
@@ -89,50 +102,51 @@ def create_card(product_bytes, description):
     except:
         return None
 
-def add_text_overlay(image_url, description):
-    """Накладывает текст УТП на готовую картинку, используя PIL."""
+def add_text_overlay(image_url, features):
+    """Накладывает стильный, структурированный текст на карточку."""
     try:
         # Загружаем изображение по URL
         with urllib.request.urlopen(image_url) as f:
             img = Image.open(io.BytesIO(f.read())).convert("RGBA")
 
-        # Создаем слой для рисования
-        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
-
+        draw = ImageDraw.Draw(img)
+        
         # Используем стандартный шрифт
         font = ImageFont.load_default()
         
-        # Координаты для текста
-        x_pos = int(img.width * 0.55)
-        y_pos_top = 80
-
-        # Рисуем полупрозрачную плашку под текст
-        panel_width = int(img.width * 0.4)
-        panel_height = img.height - 120
-        draw.rectangle([x_pos - 20, y_pos_top - 20, x_pos + panel_width + 20, y_pos_top + panel_height + 20], fill=(255, 255, 255, 180))
-
-        # Разбиваем длинный текст на строки
-        lines = []
-        line = ""
-        for word in description.split():
-            # Примерная ширина строки для стандартного шрифта
-            if len(line + word) < 40: 
-                line += word + " "
-            else:
-                lines.append(line.strip())
-                line = word + " "
-        lines.append(line.strip())
+        # Цвета
+        white = (255, 255, 255, 230)
+        black = (0, 0, 0)
         
-        # Выводим текст по строкам
+        # --- Плашка УТП сверху слева ---
+        utp_text = "ХИТ ПРОДАЖ"
+        utp_width = 200
+        utp_height = 60
+        draw.rectangle([20, 20, 20 + utp_width, 20 + utp_height], fill=(255, 0, 0, 200))
+        draw.text((40, 40), utp_text, fill=white, font=font)
+
+        # --- Преимущества справа ---
+        x_pos = int(img.width * 0.55)
+        y_pos = 100
+        panel_width = int(img.width * 0.4)
+        panel_height = img.height - 200
+        
+        # Прозрачная плашка под текст
+        draw.rectangle([x_pos - 10, y_pos - 10, x_pos + panel_width, y_pos + panel_height], fill=(0, 0, 0, 120))
+        
         y_offset = 0
-        for line in lines:
-            draw.text((x_pos, y_pos_top + y_offset), line, fill=(0, 0, 0), font=font)
+        for i, feature in enumerate(features):
+            feature_text = f"• {feature}"
+            draw.text((x_pos, y_pos + y_offset), feature_text, fill=white, font=font)
             y_offset += 40
 
-        # Накладываем слой с текстом на изображение
-        img = Image.alpha_composite(img, overlay)
-        
+        # --- Название товара снизу слева ---
+        name_text = f"Лучший выбор!"
+        name_width = 300
+        name_height = 50
+        draw.rectangle([20, img.height - 80, 20 + name_width, img.height - 80 + name_height], fill=(255, 255, 255, 200))
+        draw.text((40, img.height - 65), name_text, fill=black, font=font)
+
         # Сохраняем в поток
         output = io.BytesIO()
         img.save(output, format='PNG')
@@ -155,24 +169,22 @@ def handle_photo(message):
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # 1. Анализ товара
-        product_info = analyze_photo(downloaded_file)
+        # 1. Анализ товара (получаем данные)
+        product_data = analyze_photo(downloaded_file)
         
-        # 2. Генерация продающего текста
-        marketing_text = generate_description(product_info)
+        # 2. Генерация продающих преимуществ
+        features = generate_description(product_data)
         
-        # 3. Создание картинки с фоном
-        card_url = create_card(downloaded_file, product_info)
+        # 3. Создание картинки с динамическим фоном
+        card_url = create_card(downloaded_file, product_data)
         
         if card_url:
-            # 4. Наложение продающего текста
-            final_card = add_text_overlay(card_url, marketing_text)
+            # 4. Стильное наложение текста
+            final_card = add_text_overlay(card_url, features)
             if final_card:
-                # Отправляем готовую карточку
-                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{marketing_text}")
+                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(features)}")
             else:
-                # Если наложить текст не вышло, отправляем хотя бы картинку
-                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{marketing_text}")
+                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(features)}")
         else:
             bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото.")
             
