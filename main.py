@@ -191,6 +191,7 @@ def handle_photo(message):
         retouched_url = retouch_photo(downloaded_file)
         if not retouched_url:
             bot.send_message(message.chat.id, "❌ Не удалось обработать фото.")
+            bot.delete_message(message.chat.id, wait_msg.message_id)
             return
         
         # 2. Создание дизайнерской карточки (без текста)
@@ -203,6 +204,13 @@ def handle_photo(message):
                 bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
             else:
                 bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(content['phrases'])}")
+        else:
+            bot.send_message(message.chat.id, "❌ Не удалось создать финальную карточку.")
+            
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+    finally:
+        bot.delete_message(message.chat.id, wait_msg.message_id)
 
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
