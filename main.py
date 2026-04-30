@@ -136,41 +136,36 @@ def create_card(product_bytes, product_data):
     except:
         return None
 
-def add_text_overlay(image_url, features):
-    """Накладывает стильный и ЧИТАЕМЫЙ текст с тенью."""
+def add_text_overlay(image_url, title, phrases):
+    """Накладывает стильный, минималистичный текст."""
     try:
-        # Загружаем изображение по URL
         with urllib.request.urlopen(image_url) as f:
             img = Image.open(io.BytesIO(f.read())).convert("RGBA")
-
         draw = ImageDraw.Draw(img)
-        
-        # Загружаем наш скачанный шрифт
+
+        # Загружаем стильный шрифт
         try:
-            font_large = ImageFont.truetype("font.ttf", 60)
-            font_small = ImageFont.truetype("font.ttf", 30)
+            font_title = ImageFont.truetype("font.ttf", 70)
+            font_text = ImageFont.truetype("font.ttf", 35)
         except:
-            # Если шрифт не найден, используем стандартный (запасной вариант)
-            font_large = ImageFont.load_default()
-            font_small = ImageFont.load_default()
-        
-        # Функция для рисования текста с тенью (для читаемости)
-        def draw_text_with_shadow(x, y, text, font, fill=(255, 255, 255)):
-            # Рисуем тень (черная, со смещением)
-            draw.text((x+2, y+2), text, font=font, fill=(0, 0, 0))
-            # Рисуем основной текст поверх
-            draw.text((x, y), text, font=font, fill=fill)
+            font_title = ImageFont.load_default()
+            font_text = ImageFont.load_default()
 
-        # --- 1. Заголовок УТП (вверху слева) ---
-        draw_text_with_shadow(30, 30, "ХИТ ПРОДАЖ", font_large, fill=(255, 80, 80)) # Красный цвет для заголовка
+        # --- 1. Заголовок (вверху по центру, с тенью) ---
+        title_x = int(img.width / 2)
+        title_y = 40
+        draw.text((title_x+3, title_y+3), title, font=font_title, fill=(0, 0, 0, 180), anchor="mt")
+        draw.text((title_x, title_y), title, font=font_title, fill=(255, 255, 255), anchor="mt")
 
-        # --- 2. Преимущества (справа по центру) ---
-        x_pos = int(img.width * 0.55)
-        y_pos = int(img.height * 0.4)
-        for i, feature in enumerate(features):
-            draw_text_with_shadow(x_pos, y_pos + i * 50, f"• {feature}", font_small)
+        # --- 2. Плашки с преимуществами (слева, вертикально) ---
+        y_start = int(img.height * 0.25)
+        for i, phrase in enumerate(phrases):
+            y_pos = y_start + i * 60
+            # Рисуем полупрозрачную плашку
+            draw.rounded_rectangle([20, y_pos, 350, y_pos + 45], radius=5, fill=(0, 0, 0, 120))
+            # Текст на плашке
+            draw.text((35, y_pos + 5), phrase, font=font_text, fill=(255, 255, 255))
 
-        # Сохраняем результат в память
         output = io.BytesIO()
         img.save(output, format='PNG')
         output.seek(0)
@@ -195,11 +190,17 @@ def handle_photo(message):
         # 1. Анализ товара (получаем данные)
         product_data = analyze_photo(downloaded_file)
         
-        # 2. Генерация продающих преимуществ
-        features = generate_description(product_data)
+        # 2. Генерация ТЗ по вашему промпту
+        ai_text = generate_description(product_data)
+        content = parse_ai_response(ai_text)
         
-        # 3. Создание картинки с динамическим фоном
+        # 3. Создание картинки с фоном от ИИ
+        product_data['bg_description'] = content['bg_description'] # Передаем фон
         card_url = create_card(downloaded_file, product_data)
+        
+        if card_url:
+            # 4. Стильное наложение текста
+            final_card = add_text_overlay(card_url, content['title'], content['phrases'])
         
         if card_url:
             # 4. Стильное наложение текста
