@@ -9,7 +9,7 @@ from dashscope import MultiModalConversation
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
-DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")  # Ваш ключ от Alibaba Cloud
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")
 
 if not all([TG_TOKEN, HF_TOKEN, DASHSCOPE_API_KEY]):
     raise Exception("Не хватает токенов! Проверьте переменные на Railway.")
@@ -27,30 +27,20 @@ def analyze_photo(image_bytes):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = hf_client.chat.completions.create(
             model="Qwen/Qwen2.5-VL-72B-Instruct",
-            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар кратко: что это и какого он цвета."}]}],
+            messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар для карточки маркетплейса. Напиши строго на русском языке: что это и какого он цвета."}]}],
             max_tokens=50
         )
         return response.choices[0].message.content
     except:
-        return "product"
+        return "товар"
 
 def create_card(product_bytes, description):
-    """Редактирует фото с помощью Qwen-Image-Edit, помещая товар на новый фон."""
     try:
-        # Кодируем фото в base64 для отправки
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
 
-        # Формируем промпт для редактирования
-        # promo_text = "ХИТ ПРОДАЖ" # Раскомментируйте и задайте свой текст, если хотите добавить его на картинку
-prompt = f"""Помести этот {description} на минималистичный профессиональный фон для маркетплейса. 
-Студийное освещение, высокое качество.
-Требования:
-- Ответ должен быть на русском языке.
-- Описание товара и всю текстовую информацию выводить строго на русском языке.
-- Не использовать иероглифы или другие языки.
-- Просто помести товар на чистый, привлекательный фон без лишних деталей."""
-        
+        prompt = f"Помести этот {description} на минималистичный профессиональный фон для маркетплейса, студийное освещение, высокое качество. Опиши товар на русском языке."
+
         messages = [{
             "role": "user",
             "content": [
@@ -59,18 +49,16 @@ prompt = f"""Помести этот {description} на минималистич
             ]
         }]
 
-        # Вызываем Qwen-Image-Edit через DashScope
         response = MultiModalConversation.call(
             api_key=DASHSCOPE_API_KEY,
-            model="qwen-image-edit-plus", # Быстрая и качественная модель редактирования
+            model="qwen-image-edit-plus",
             messages=messages,
             n=1,
             watermark=False,
-            size="1024*1536" # Вертикальный формат для маркетплейсов
+            size="1024*1536"
         )
 
         if response.status_code == 200:
-            # Получаем URL сгенерированного изображения
             result_url = response.output.choices[0].message.content[0]['image']
             return result_url
         else:
@@ -90,14 +78,10 @@ def handle_photo(message):
     wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 15-20 секунд.")
     
     try:
-        # Скачиваем фото
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # Анализируем
         desc = analyze_photo(downloaded_file)
-        
-        # Создаём карточку с помощью Qwen-Image-Edit
         card_url = create_card(downloaded_file, desc)
         
         if card_url:
