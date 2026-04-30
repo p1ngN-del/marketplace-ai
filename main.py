@@ -3,125 +3,121 @@ import telebot
 from flask import Flask, request
 from huggingface_hub import InferenceClient
 import base64
-import tempfile
+import replicate
+from rembg import remove
+from PIL import Image
+import io
 
 # --- НАСТРОЙКИ ---
-# Токены берем из переменных окружения Railway
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
-RAILWAY_URL = os.environ.get("RAILWAY_PUBLIC_DOMAIN") # Railway сам создаст эту переменную
+REPLICATE_TOKEN = os.environ.get("REPLICATE_TOKEN")
 
-if not TG_TOKEN or not HF_TOKEN:
-    raise Exception("Не хватает токенов TG_TOKEN или HF_TOKEN в переменных среды!")
+if not all([TG_TOKEN, HF_TOKEN, REPLICATE_TOKEN]):
+    raise Exception("Не хватает токенов! Проверьте переменные среды в Railway.")
 
-# Инициализация бота и клиента HF
+os.environ["REPLICATE_API_TOKEN"] = REPLICATE_TOKEN
+
 bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 
-# --- ЛОГИКА АНАЛИЗА ---
-def analyze_photo_from_bytes(photo_bytes):
-    try:
-        # Кодируем фото в base64
-        base64_image = base64.b64encode(photo_bytes).decode('utf-8')
-        
-        response = hf_client.chat.completions.create(
-            model="Qwen/Qwen2.5-VL-72B-Instruct",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                        {"type": "text", "text": "Ты помощник селлера. Опиши товар для карточки маркетплейса. \nПравила:\n1. Не используй символы #, *, _ или жирный шрифт.\n2. Пиши простым текстом.\n3. Структура ответа:\nНАЗВАНИЕ: (коротко)\nХАРАКТЕРИСТИКИ: (цвет, материал)\nПРЕИМУЩЕСТВА: (3 пункта)\nКЛЮЧЕВЫЕ СЛОВА: (5 слов через запятую)"}
-                    ]
-                }
-            ],
-            max_tokens=400
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Ошибка анализа: {str(e)}"
+# --- ФУНКЦИИ ---
 
-# --- ОБРАБОТЧИКИ TELEGRAM ---
+def analyze_photo(image_bytes):
+    """Анализирует фото и возвращает описание"""
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+    response = hf_client.chat.completions.create(
+        model="Qwen/Qwen2.5-VL-72B-Instruct",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                    {"type": "text", "text": "Опиши товар кратко: Название, Цвет, Материал."}
+                ]
+            }
+        ],
+        max_tokens=150
+    )
+    return response.choices[0].message.content
+
+def generate_background(description):
+    """Генерирует фон по описанию"""
+    prompt = f"Professional product photography background for {description}. Minimalist, clean, soft lighting, 8k, empty space in center."
+    output = replicate.run(
+        "black-forest-labs/flux-dev",
+        input={"prompt": prompt, "aspect_ratio": "3:4", "output_quality": 90}
+    )
+    return output[0] # Возвращает URL картинки
+
+def create_card(original_photo_bytes, bg_url):
+    """Вырезает товар и вставляет на новый фон"""
+    try:
+        # 1. Удаляем фон у исходного фото
+        input_image = Image.open(io.BytesIO(original_photo_bytes))
+        no_bg_image = remove(input_image)
+        
+        # 2. Скачиваем сгенерированный фон
+        import urllib.request
+        with urllib.request.urlopen(bg_url) as response:
+            bg_image = Image.open(io.BytesIO(response.read())).convert("RGBA")
+            
+        # 3. Подгоняем размеры
+        # Растягиваем товар так, чтобы он занимал 70% высоты фона
+        ratio = 0.7
+        new_height = int(bg_image.height * ratio)
+        w_percent = (new_height / float(no_bg_image.size[1]))
+        new_width = int((float(no_bg_image.size[0]) * float(w_percent)))
+        no_bg_image = no_bg_image.resize((new_width, new_height), Image.LANCZOS)
+        
+        # 4. Вставляем товар в центр фона
+        position = ((bg_image.width - new_width) // 2, (bg_image.height - new_height) // 2)
+        bg_image.paste(no_bg_image, position, no_bg_image)
+        
+        # 5. Сохраняем результат в память
+        img_byte_arr = io.BytesIO()
+        bg_image.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        return img_byte_arr
+        
+    except Exception as e:
+        print(f"Ошибка сборки карточки: {e}")
+        return None
+
+# --- БОТ ---
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! 📸 Пришли мне фото товара, и я составлю для него описание.")
+    bot.reply_to(message, "Привет! 📸 Пришли фото товара, я сделаю карточку для маркетплейса.")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    # Отправляем сообщение "Думаю..."
-    wait_msg = bot.reply_to(message, "🔍 Анализирую фото... Секунду...")
+    wait_msg = bot.reply_to(message, "⏳ Работаю: анализирую, рисую фон, собираю карточку... (ждите ~40 сек)")
     
     try:
-        # Получаем файл фото
+        # 1. Получаем фото
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # Анализируем
-        description = analyze_photo_from_bytes(downloaded_file)
+        # 2. Анализ
+        desc = analyze_photo(downloaded_file)
         
-        # Создаем кнопку "Скопировать текст"
-        markup = telebot.types.InlineKeyboardMarkup()
-        btn_copy = telebot.types.InlineKeyboardButton(text="📋 Скопировать описание", callback_data="copy_text")
-        markup.add(btn_copy)
+        # 3. Генерация фона
+        bg_url = generate_background(desc)
         
-        # Сохраняем описание во временную память бота, чтобы кнопка знала, что копировать
-        # (Для простоты мы просто отправим текст еще раз при нажатии, но лучше использовать кэш)
-        # В данном простом варианте мы просто отредактируем сообщение
+        # 4. Сборка карточки
+        final_card = create_card(downloaded_file, bg_url)
         
-        # Отправляем красивый ответ с кнопкой
-        bot.edit_message_text(
-            chat_id=message.chat.id, 
-            message_id=wait_msg.message_id, 
-            text=f"✅ Готово!\n\n{description}",
-            reply_markup=markup
-        )
+        if final_card:
+            bot.send_photo(message.chat.id, final_card, caption=f"✅ Готово!\n\n{desc}")
+        else:
+            bot.send_message(message.chat.id, "❌ Не удалось собрать карточку, но вот описание:\n" + desc)
+            
+        bot.delete_message(message.chat.id, wait_msg.message_id)
         
     except Exception as e:
         bot.edit_message_text(chat_id=message.chat.id, message_id=wait_msg.message_id, text=f"❌ Ошибка: {e}")
 
-# Обработчик нажатия на кнопку
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
-    if call.data == "copy_text":
-        # Когда пользователь жмет кнопку, мы присылаем ему текст еще раз, но без кнопки, чтобы он мог его выделить
-        # Или используем метод copy_message, но проще всего отправить текст отдельно
-        bot.answer_callback_query(call.id, "Текст отправлен ниже 👇")
-        
-        # Находим исходное сообщение, чтобы взять оттуда текст
-        # В простом варианте мы просто попросим пользователя скопировать из предыдущего сообщения
-        # Но давайте сделаем хитрее: отправим новый сообщение с текстом
-        bot.send_message(call.message.chat.id, call.message.text.split("✅ Готово!\n\n")[1])
-
-# --- ЗАПУСК WEBHOOK (для Railway) ---
-app = Flask(__name__)
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return '403'
-
-@app.route('/')
-def index():
-    return "Bot is running on Railway!"
-
-if __name__ == '__main__':
-    # Настраиваем Webhook при запуске
-    # Railway дает публичный домен в переменной RAILWAY_PUBLIC_DOMAIN или мы можем взять его из headers
-    # Но проще всего использовать стандартный порт и пусть Railway проксирует
-    
-    # Для локального теста можно использовать bot.polling(), но для Railway нужен webhook
-    # Мы используем простой трюк: запускаем Flask, а бота подключаем через webhook вручную один раз
-    # Или используем polling, если Railway позволяет долгоживущие процессы (он позволяет)
-    
-    # ВАРИАНТ ДЛЯ RAILWAY (Polling проще для старта, но Webhook надежнее)
-    # Давайте используем Polling, так как это проще для новичка. 
-    # Railway не убивает процесс, если он пишет в лог.
-    
-    print("Запуск бота в режиме Polling...")
-    bot.infinity_polling()
+# --- ЗАПУСК ---
+print("Бот запущен...")
+bot.infinity_polling()
