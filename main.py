@@ -5,10 +5,7 @@ from huggingface_hub import InferenceClient
 import base64
 import dashscope
 from dashscope import MultiModalConversation
-from PIL import Image, ImageDraw, ImageFont
-import io
 import urllib.request
-import random
 
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
@@ -24,9 +21,8 @@ bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
-# --- ГЕНЕРАЦИЯ МАРКЕТИНГОВЫХ ДАННЫХ ---
+# --- ГЕНЕРАЦИЯ МАРКЕТИНГОВЫХ ДАННЫХ (ваш промпт) ---
 def analyze_photo(image_bytes):
-    """Анализирует фото и возвращает словарь с информацией о товаре."""
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         messages = [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}, {"type": "text", "text": "Опиши этот товар для маркетплейса. Верни ответ СТРОГО в формате JSON: {\"name\": \"название\", \"color\": \"основной цвет\", \"material\": \"материал\"}. Без лишнего текста."}]}]
@@ -35,7 +31,6 @@ def analyze_photo(image_bytes):
             messages=messages,
             max_tokens=150
         )
-        # Пытаемся распарсить JSON, если не выходит — возвращаем заглушку
         import json
         try:
             data = json.loads(response.choices[0].message.content)
@@ -46,7 +41,6 @@ def analyze_photo(image_bytes):
         return {"name": "товар", "color": "белый", "material": "пластик"}
 
 def generate_description(product_data):
-    """Генерирует полное маркетинговое ТЗ на основе вашего промпта."""
     try:
         prompt = f"""Ты — ведущий e-commerce-стратег.
         Товар: {product_data['name']}, цвет: {product_data['color']}, материал: {product_data['material']}.
@@ -61,7 +55,7 @@ def generate_description(product_data):
         Ответь СТРОГО на русском языке."""
         
         response = hf_client.chat.completions.create(
-            model="Qwen/Qwen2.5-VL-72B-Instruct", # Используем текстовую модель для генерации текста
+            model="Qwen/Qwen2.5-VL-72B-Instruct",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500
         )
@@ -70,13 +64,10 @@ def generate_description(product_data):
         return "Стильный и надежный товар для вашего комфорта."
 
 def parse_ai_response(ai_text):
-    """Парсит ответ ИИ и извлекает заголовок, преимущества и фон."""
     import re
-    # Извлекаем заголовок
     title_match = re.search(r"SEO-ЗАГОЛОВОК.*:(.*)", ai_text)
     title = title_match.group(1).strip() if title_match else "Лучший выбор"
     
-    # Извлекаем фразы для инфографики
     phrases_match = re.search(r"Инфографика.*:(.*)", ai_text)
     if phrases_match:
         phrases_text = phrases_match.group(1)
@@ -84,7 +75,6 @@ def parse_ai_response(ai_text):
     else:
         phrases = ["Премиум качество", "Стильный дизайн", "Выгодная цена"]
     
-    # Извлекаем фон для ТЗ
     bg_match = re.search(r"Главное фото.*:(.*)", ai_text)
     bg_description = bg_match.group(1).strip() if bg_match else "минималистичный студийный фон"
     
@@ -94,87 +84,64 @@ def parse_ai_response(ai_text):
         "bg_description": bg_description
     }
 
-# --- РАБОТА С ИЗОБРАЖЕНИЕМ ---
-def create_card(product_bytes, product_data):
-    """Генерирует картинку с динамическим фоном."""
+# --- РАБОТА С ИЗОБРАЖЕНИЕМ (ДВЕ МОДЕЛИ) ---
+def retouch_photo(product_bytes):
+    """Шаг 1: Ретушь и чистка фото с помощью Qwen-Image-Edit-Plus."""
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
 
-        # Динамический промпт для фона!
-        prompt = f"""Создай профессиональную карточку товара для Wildberries.
-        Товар: {product_data['name']}, цвет: {product_data['color']}, материал: {product_data['material']}.
-        Инструкция:
-        1. Помести товар на фон, который ИДЕАЛЬНО подходит по стилю и цвету к этому товару.
-        2. Оставь достаточно свободного пространства для текста.
-        3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО рисовать любой текст или буквы на изображении.
-        4. Только фон и товар. Никаких лишних предметов.
-        """
+        prompt = "Удали лишние объекты с фотографии (руки, провода, блики от лампы). Оставь только сам товар. Помести его на нейтральный, чистый, студийный белый фон."
 
-        messages = [{
-            "role": "user",
-            "content": [
-                {"image": image_url},
-                {"text": prompt}
-            ]
-        }]
+        messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
 
         response = MultiModalConversation.call(
             api_key=DASHSCOPE_API_KEY,
-            model="qwen-image-2.0-pro",
+            model="qwen-image-edit-plus",
             messages=messages,
-            n=1,
-            watermark=False,
-            size="1024*1536"
+            n=1, watermark=False, size="1024*1536"
         )
-
         if response.status_code == 200:
-            result_url = response.output.choices[0].message.content[0]['image']
-            return result_url
+            return response.output.choices[0].message.content[0]['image']
         else:
             return None
     except:
         return None
 
-def add_text_overlay(image_url, title, phrases):
-    """Накладывает стильный текст шрифтом Montserrat."""
+def create_card(product_url, title, phrases):
+    """Шаг 2: Создание стильной карточки с помощью Qwen-Image-2.0-Pro."""
     try:
-        with urllib.request.urlopen(image_url) as f:
-            img = Image.open(io.BytesIO(f.read())).convert("RGBA")
-        draw = ImageDraw.Draw(img)
+        # Промпт-ТЗ для дизайнера
+        prompt = f"""Ты — ведущий дизайнер для карточек товаров Wildberries и Ozon. Создай премиальный визуал для этого товара.
+        ПРАВИЛА ДИЗАЙНА (нарушать нельзя):
+        1. **Фон:** Чистый, студийный, с мягким градиентом. Товар занимает 60-70% пространства слева или по центру. Никакого лишнего реквизита.
+        2. **Текст:**
+           - Заголовок (КРУПНО): "{title}".
+           - Преимущества (в столбик справа): {', '.join(phrases)}.
+        3. **Иерархия:**
+           - Заголовок — самый крупный и жирный шрифт.
+           - Преимущества — средний размер, каждая фраза с новой строки.
+        4. **Расположение текста:** Справа от товара, на полупрозрачной плашке для контраста.
+        5. **Контраст:** Текст должен быть белым на темной плашке или черным на светлой. Проверь, чтобы он читался.
+        6. **Шрифт:** Используй шрифт из файла: ВАША_ССЫЛКА_НА_ШРИФТ.
+        7. **Безопасные зоны:** Не размещай важный текст ближе 50 пикселей к краям. Верхний правый угол и низ карточки должны остаться пустыми.
+        8. **Стиль:** Современный, минималистичный, дорогой. Никаких кричащих цветов.
+        Создай изображение.
+        """
 
-        # Загружаем НАШИ шрифты Montserrat
-        try:
-            # Явно указываем файлы, которые загрузили на GitHub
-            font_title = ImageFont.truetype("font_bold.ttf", 75)  # Жирный для заголовка H1
-            font_text = ImageFont.truetype("font_regular.ttf", 35) # Обычный для преимуществ H2
-        except Exception as font_error:
-            print(f"Ошибка загрузки шрифта Montserrat: {font_error}. Использую стандартный.")
-            font_title = ImageFont.load_default()
-            font_text = ImageFont.load_default()
+        messages = [{"role": "user", "content": [{"image": product_url}, {"text": prompt}]}]
 
-        # --- Заголовок (H1) ---
-        title_x = int(img.width / 2)
-        title_y = 40
-        # Тень для читаемости по правилам контраста
-        draw.text((title_x+3, title_y+3), title, font=font_title, fill=(0, 0, 0, 180), anchor="mt")
-        draw.text((title_x, title_y), title, font=font_title, fill=(255, 255, 255), anchor="mt")
-
-        # --- Офферы (H2) ---
-        y_start = int(img.height * 0.25)
-        for i, phrase in enumerate(phrases):
-            y_pos = y_start + i * 65 # Увеличили отступ, чтобы текст "дышал" (правило "воздуха")
-            # Плашка для контраста
-            draw.rounded_rectangle([20, y_pos, 400, y_pos + 50], radius=5, fill=(0, 0, 0, 150))
-            # Белый текст на темной плашке - идеальный контраст по правилам статьи
-            draw.text((35, y_pos + 5), phrase, font=font_text, fill=(255, 255, 255))
-
-        output = io.BytesIO()
-        img.save(output, format='PNG')
-        output.seek(0)
-        return output
-    except Exception as e:
-        print(f"Ошибка наложения текста: {e}")
+        response = MultiModalConversation.call(
+            api_key=DASHSCOPE_API_KEY,
+            model="qwen-image-2.0-pro",
+            messages=messages,
+            n=1, watermark=False, size="1024*1536"
+        )
+        if response.status_code == 200:
+            return response.output.choices[0].message.content[0]['image']
+        else:
+            return None
+    except:
         return None
 
 # --- TELEGRAM БОТ ---
@@ -184,32 +151,29 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 30-40 секунд.")
+    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... Это займёт около 40-50 секунд.")
     
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # 1. Анализ товара (получаем данные)
         product_data = analyze_photo(downloaded_file)
-        
-        # 2. Генерация ТЗ по вашему промпту
         ai_text = generate_description(product_data)
         content = parse_ai_response(ai_text)
         
-        # 3. Создание картинки с фоном от ИИ
-        product_data['bg_description'] = content['bg_description'] # Передаем фон
-        card_url = create_card(downloaded_file, product_data)
+        # 1. Ретушь фото
+        retouched_url = retouch_photo(downloaded_file)
+        if not retouched_url:
+            bot.send_message(message.chat.id, "❌ Не удалось обработать фото.")
+            return
+        
+        # 2. Создание дизайнерской карточки
+        card_url = create_card(retouched_url, content['title'], content['phrases'])
         
         if card_url:
-            # 4. Стильное наложение текста (исправленная строка)
-            final_card = add_text_overlay(card_url, content['title'], content['phrases'])
-            if final_card:
-                bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
-            else:
-                bot.send_photo(message.chat.id, card_url, caption=f"✅ Карточка создана, но текст наложить не удалось.\n{' | '.join(content['phrases'])}")
+            bot.send_photo(message.chat.id, card_url, caption=f"✅ Готовая карточка!\n{' | '.join(content['phrases'])}")
         else:
-            bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото.")
+            bot.send_message(message.chat.id, "❌ Не удалось создать карточку.")
             
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
