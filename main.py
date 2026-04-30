@@ -4,18 +4,18 @@ from flask import Flask, request
 from huggingface_hub import InferenceClient
 import base64
 import replicate
+from rembg import remove
 from PIL import Image
 import io
 import urllib.request
-import requests
+import threading
 
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
 REPLICATE_TOKEN = os.environ.get("REPLICATE_TOKEN")
-REMOVEBG_API_KEY = os.environ.get("REMOVEBG_API_KEY")
 
-if not all([TG_TOKEN, HF_TOKEN, REPLICATE_TOKEN, REMOVEBG_API_KEY]):
+if not all([TG_TOKEN, HF_TOKEN, REPLICATE_TOKEN]):
     raise Exception("Не хватает токенов! Проверьте переменные на Railway.")
 
 os.environ["REPLICATE_API_TOKEN"] = REPLICATE_TOKEN
@@ -24,7 +24,7 @@ bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
-# --- ФУНКЦИИ ОБРАБОТКИ ---
+# --- ФУНКЦИИ ОБРАБОТКИ (те же, но с rembg) ---
 def analyze_photo(image_bytes):
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
@@ -45,33 +45,12 @@ def generate_background(desc):
     except:
         return None
 
-def remove_bg(image_bytes):
-    """Удаляет фон через API remove.bg"""
-    try:
-        response = requests.post(
-            'https://api.remove.bg/v1.0/removebg',
-            files={'image_file': ('image.jpg', image_bytes)},
-            data={'size': 'auto'},
-            headers={'X-Api-Key': REMOVEBG_API_KEY},
-        )
-        if response.status_code == 200:
-            return response.content
-        else:
-            print(f"Ошибка remove.bg: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"Ошибка remove.bg: {e}")
-        return None
-
 def create_card(product_bytes, bg_url):
-    """Склеивает товар без фона с новым фоном"""
+    """Склеивает товар без фона с новым фоном, используя БЕСПЛАТНЫЙ rembg"""
     try:
-        # 1. Удаляем фон
-        no_bg_bytes = remove_bg(product_bytes)
-        if not no_bg_bytes:
-            return None
-            
-        no_bg_img = Image.open(io.BytesIO(no_bg_bytes))
+        # 1. Удаляем фон с помощью rembg (бесплатно и без лимитов)
+        input_img = Image.open(io.BytesIO(product_bytes))
+        no_bg_img = remove(input_img)
         
         # 2. Качаем фон
         with urllib.request.urlopen(bg_url) as resp:
@@ -96,15 +75,20 @@ def create_card(product_bytes, bg_url):
         print(f"Ошибка склейки: {e}")
         return None
 
-# --- TELEGRAM БОТ ---
+# --- TELEGRAM БОТ (с фоновой обработкой) ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Пришли фото, я сделаю карточку.")
+    bot.reply_to(message, "Привет! Пришли фото, и я превращу его в карточку для маркетплейса.")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    wait_msg = bot.reply_to(message, "⏳ Создаю карточку... (до 30 секунд)")
+    # Мгновенно отвечаем, чтобы избежать тайм-аута
+    wait_msg = bot.reply_to(message, "⏳ Фото принято! Начинаю обработку... Это может занять до 2 минут.")
     
+    # Запускаем тяжелую обработку в фоновом потоке
+    threading.Thread(target=process_and_send, args=(message, wait_msg)).start()
+
+def process_and_send(message, wait_msg):
     try:
         # Скачиваем фото
         file_info = bot.get_file(message.photo[-1].file_id)
@@ -117,20 +101,24 @@ def handle_photo(message):
         bg_url = generate_background(desc)
         
         if bg_url:
-            # Склеиваем
+            # Склеиваем (самая долгая часть)
             final_card = create_card(downloaded_file, bg_url)
             
             if final_card:
                 bot.send_photo(message.chat.id, final_card, caption=f"✅ Готовая карточка!\n{desc}")
             else:
-                bot.send_photo(message.chat.id, bg_url, caption=f"⚠️ Не удалось вырезать товар (лимит remove.bg?). Вот фон к вашему товару.")
+                bot.send_photo(message.chat.id, bg_url, caption=f"⚠️ Не удалось склеить, но вот фон к вашему товару: {desc}")
         else:
-            bot.send_message(message.chat.id, "❌ Ошибка генерации фона.")
+            bot.send_message(message.chat.id, "❌ Ошибка генерации фона. Возможно, закончился баланс Replicate.")
             
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ Критическая ошибка: {e}")
     finally:
-        bot.delete_message(message.chat.id, wait_msg.message_id)
+        # Удаляем сообщение "⏳ Фото принято..."
+        try:
+            bot.delete_message(message.chat.id, wait_msg.message_id)
+        except:
+            pass
 
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
