@@ -121,7 +121,7 @@ def create_card(product_bytes, product_data):
 
         response = MultiModalConversation.call(
             api_key=DASHSCOPE_API_KEY,
-            model="qwen-image-edit-plus",
+            model="qwen-image-2.0-pro",
             messages=messages,
             n=1,
             watermark=False,
