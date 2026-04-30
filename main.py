@@ -92,6 +92,16 @@ def webhook():
 @app.route('/')
 def index():
     return "Бот работает!"
+@app.route('/set_webhook')
+def set_webhook():
+    railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway_url:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"https://{railway_url}/webhook")
+        return f"Webhook установлен: https://{railway_url}/webhook"
+    else:
+        # Если переменной нет, попробуем стандартный домен Railway
+        return "Ошибка: не найдена переменная RAILWAY_PUBLIC_DOMAIN"    
 
 if __name__ == '__main__':
     # Устанавливаем Webhook
