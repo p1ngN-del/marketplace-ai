@@ -103,51 +103,41 @@ def create_card(product_bytes, product_data):
         return None
 
 def add_text_overlay(image_url, features):
-    """Накладывает стильный, структурированный текст на карточку."""
+    """Стильно накладывает текст на готовую картинку."""
     try:
         # Загружаем изображение по URL
         with urllib.request.urlopen(image_url) as f:
             img = Image.open(io.BytesIO(f.read())).convert("RGBA")
 
-        draw = ImageDraw.Draw(img)
-        
+        # Создаем отдельный слой для рисования
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+
         # Используем стандартный шрифт
         font = ImageFont.load_default()
-        
-        # Цвета
-        white = (255, 255, 255, 230)
-        black = (0, 0, 0)
-        
-        # --- Плашка УТП сверху слева ---
-        utp_text = "ХИТ ПРОДАЖ"
-        utp_width = 200
-        utp_height = 60
-        draw.rectangle([20, 20, 20 + utp_width, 20 + utp_height], fill=(255, 0, 0, 200))
-        draw.text((40, 40), utp_text, fill=white, font=font)
 
-        # --- Преимущества справа ---
+        # --- 1. Логотип или плашка "ХИТ" вверху слева (заменяем красный прямоугольник) ---
+        draw.ellipse([20, 20, 110, 110], fill=(255, 80, 80, 220)) # Красный круг
+        draw.text((35, 55), "ХИТ", fill=(255, 255, 255, 255), font=font)
+
+        # --- 2. Преимущества товара в виде списка справа ---
         x_pos = int(img.width * 0.55)
-        y_pos = 100
+        y_pos_top = 150
         panel_width = int(img.width * 0.4)
-        panel_height = img.height - 200
-        
-        # Прозрачная плашка под текст
-        draw.rectangle([x_pos - 10, y_pos - 10, x_pos + panel_width, y_pos + panel_height], fill=(0, 0, 0, 120))
-        
-        y_offset = 0
+
+        # Рисуем полупрозрачную подложку под текст, чтобы он читался на любом фоне
+        panel_height = len(features) * 50 + 40
+        draw.rounded_rectangle([x_pos - 20, y_pos_top - 20, x_pos + panel_width, y_pos_top + panel_height], radius=5, fill=(0, 0, 0, 130))
+
+        # Выводим каждое преимущество с иконкой
         for i, feature in enumerate(features):
-            feature_text = f"• {feature}"
-            draw.text((x_pos, y_pos + y_offset), feature_text, fill=white, font=font)
-            y_offset += 40
+            y_offset = y_pos_top + i * 50
+            draw.text((x_pos, y_offset), f"✅ {feature}", fill=(255, 255, 255, 255), font=font)
 
-        # --- Название товара снизу слева ---
-        name_text = f"Лучший выбор!"
-        name_width = 300
-        name_height = 50
-        draw.rectangle([20, img.height - 80, 20 + name_width, img.height - 80 + name_height], fill=(255, 255, 255, 200))
-        draw.text((40, img.height - 65), name_text, fill=black, font=font)
+        # Накладываем слой с текстом на исходное изображение
+        img = Image.alpha_composite(img, overlay)
 
-        # Сохраняем в поток
+        # Сохраняем результат в памяти
         output = io.BytesIO()
         img.save(output, format='PNG')
         output.seek(0)
