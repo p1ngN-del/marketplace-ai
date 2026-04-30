@@ -3,4 +3,4 @@ huggingface_hub
 pytelegrambotapi==4.15.0
 replicate
 pillow
-requests
+rembg[gpu]
