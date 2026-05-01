@@ -5,7 +5,14 @@ from huggingface_hub import InferenceClient
 import base64
 import dashscope
 from dashscope import MultiModalConversation
+import os
+import sys
 
+# Если переменная BOT_ACTIVE не равна "true" — бот не запускается
+if os.environ.get("BOT_ACTIVE", "true").lower() != "true":
+    print("Бот отключен через переменную BOT_ACTIVE")
+    sys.exit(0)
+    
 # --- НАСТРОЙКИ ---
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
