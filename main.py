@@ -83,17 +83,6 @@ except:
     font_title = ImageFont.load_default()
     font_text = ImageFont.load_default()
 
-# --- ХРАНИЛИЩЕ ДАННЫХ О ТОВАРЕ ---
-user_product_data = {}
-
-# --- КЛАВИАТУРЫ ---
-def main_keyboard(user_id):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(types.KeyboardButton("🏠 Главная"), types.KeyboardButton("❓ Помощь"))
-    if str(user_id) == ADMIN_ID:
-        markup.add(types.KeyboardButton("📊 Админ-панель"))
-    return markup
-
 # --- ФУНКЦИИ ОБРАБОТКИ ФОТО ---
 def retouch_photo(product_bytes):
     try:
@@ -128,7 +117,6 @@ def add_text_overlay(image_url, title, utp, cta):
         draw = ImageDraw.Draw(overlay)
 
         # --- Плашка для названия (сверху по центру) ---
-        # Профессиональный полупрозрачный градиент (имитация)
         panel_w, panel_h = 800, 100
         x1 = (img.width - panel_w) // 2
         y1 = 30
@@ -142,7 +130,6 @@ def add_text_overlay(image_url, title, utp, cta):
         utp_panel_w, utp_panel_h = 420, 120
         utp_x1, utp_y1 = 50, img.height // 2 - 60
         draw.rounded_rectangle([utp_x1, utp_y1, utp_x1 + utp_panel_w, utp_y1 + utp_panel_h], radius=15, fill=(255, 215, 0, 220))
-        # Тень текста
         draw.text((utp_x1 + 23, utp_y1 + 33), utp, font=font_text, fill=(0, 0, 0, 200))
         draw.text((utp_x1 + 20, utp_y1 + 30), utp, font=font_text, fill=(0, 0, 0, 255))
 
@@ -168,67 +155,93 @@ def add_text_overlay(image_url, title, utp, cta):
 def send_welcome(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
-    markup = main_keyboard(user_id)
-    bot.send_message(message.chat.id, "👋 Привет! Я создаю карточки товаров.\n\n📝 Используйте кнопку 'Заполнить текст', чтобы я запомнил преимущества товара.\n📸 Затем отправьте фото, и я сделаю карточку!", reply_markup=markup)
+    bot.send_message(message.chat.id, "👋 Привет! Отправьте мне фото товара, и я сразу задам несколько вопросов для создания красивой карточки.")
 
-# --- НОВЫЙ БЛОК: ЗАПОЛНЕНИЕ ТЕКСТА ---
-@bot.message_handler(func=lambda m: m.text == "Заполнить текст")
-def ask_metrics(message):
-    msg = bot.reply_to(message, "Введите **Название товара**:")
-    bot.register_next_step_handler(msg, process_title)
+@bot.message_handler(commands=['admin'])
+def admin_stats(message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    
+    total_users, total_requests, recent_users = get_stats()
+    
+    text = f"📊 <b>Админ-панель</b>\n\n"
+    text += f"👥 Всего пользователей: <b>{total_users}</b>\n"
+    text += f"📸 Всего запросов: <b>{total_requests}</b>\n\n"
+    text += "📋 <b>Последние 10 пользователей:</b>\n"
+    
+    for i, u in enumerate(recent_users, 1):
+        name = u[3] if u[3] else "—"
+        username = f"@{u[2]}" if u[2] else "—"
+        text += f"{i}. {name} ({username}) — {u[7]} запросов\n"
+    
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
 
-def process_title(message):
-    user_product_data[message.chat.id] = {'title': message.text}
-    msg = bot.reply_to(message, "Введите **Главное преимущество (УТП)**:")
-    bot.register_next_step_handler(msg, process_utp)
-
-def process_utp(message):
-    user_product_data[message.chat.id]['utp'] = message.text
-    msg = bot.reply_to(message, "Введите **Призыв к действию** (например, 'Заказать сейчас'):")
-    bot.register_next_step_handler(msg, process_cta)
-
-def process_cta(message):
-    user_product_data[message.chat.id]['cta'] = message.text
-    bot.send_message(message.chat.id, "✅ Текст сохранен! Теперь отправьте фото товара.")
-
-# Обновленный обработчик фото
+# --- НОВЫЙ ПРОСТОЙ ДИАЛОГ ---
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
     
-    # Проверяем, заполнил ли пользователь текст
-    if message.chat.id not in user_product_data:
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(types.KeyboardButton("Заполнить текст"))
-        bot.send_message(message.chat.id, "❗ Сначала заполните текст по кнопке ниже.", reply_markup=markup)
-        return
+    # Сохраняем фото во временное хранилище
+    file_info = bot.get_file(message.photo[-1].file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+    
+    # Сохраняем фото для этого пользователя
+    if not hasattr(bot, 'user_photos'):
+        bot.user_photos = {}
+    bot.user_photos[message.chat.id] = downloaded_file
+    
+    # Задаём первый вопрос
+    msg = bot.reply_to(message, "📝 Введите **название товара**:")
+    bot.register_next_step_handler(msg, process_title)
+
+def process_title(message):
+    if not hasattr(bot, 'user_data'):
+        bot.user_data = {}
+    bot.user_data[message.chat.id] = {'title': message.text}
+    msg = bot.reply_to(message, "💎 Введите **главное преимущество (УТП)**:")
+    bot.register_next_step_handler(msg, process_utp)
+
+def process_utp(message):
+    bot.user_data[message.chat.id]['utp'] = message.text
+    msg = bot.reply_to(message, "🛒 Введите **призыв к действию** (например, 'Заказать сейчас'):")
+    bot.register_next_step_handler(msg, process_cta)
+
+def process_cta(message):
+    bot.user_data[message.chat.id]['cta'] = message.text
     
     wait_msg = bot.reply_to(message, "⏳ Создаю карточку... (около 30-40 секунд)")
     
     try:
-        file_info = bot.get_file(message.photo[-1].file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+        # Берём сохранённое фото
+        if not hasattr(bot, 'user_photos') or message.chat.id not in bot.user_photos:
+            bot.send_message(message.chat.id, "❌ Фото не найдено. Отправьте его ещё раз.")
+            return
+        
+        downloaded_file = bot.user_photos[message.chat.id]
         
         # Ретушь и генерация фона
         retouched_url = retouch_photo(downloaded_file)
-        if not retouched_url: return
+        if not retouched_url:
+            bot.edit_message_text("❌ Не удалось обработать фото.", message.chat.id, wait_msg.message_id)
+            return
         
         card_url = create_card(retouched_url)
-        if not card_url: return
+        if not card_url:
+            bot.edit_message_text("❌ Не удалось создать фон.", message.chat.id, wait_msg.message_id)
+            return
 
-        # Берем сохраненный текст
-        data = user_product_data[message.chat.id]
+        # Берём сохраненный текст
+        data = bot.user_data[message.chat.id]
         title = data.get('title', 'Товар')
         utp = data.get('utp', 'Премиум качество')
         cta = data.get('cta', 'Заказать сейчас')
         
-        # --- ВОЛШЕБСТВО: НАКЛАДЫВАЕМ ТЕКСТ ---
+        # Накладываем текст
         final_card = add_text_overlay(card_url, title, utp, cta)
         
         if final_card:
-            markup = main_keyboard(user_id)
-            bot.send_photo(message.chat.id, final_card, caption="✅ Готовая карточка с вашим текстом!\n\nОтправьте ещё фото или измените текст.", reply_markup=markup)
+            bot.send_photo(message.chat.id, final_card, caption="✅ Готовая карточка с вашим текстом!")
         else:
             bot.send_message(message.chat.id, "❌ Не удалось наложить текст.")
             
@@ -240,8 +253,6 @@ def handle_photo(message):
         except:
             pass
 
-# --- ОСТАЛЬНЫЕ ОБРАБОТЧИКИ БЕЗ ИЗМЕНЕНИЙ ---
-# (Вставьте сюда функции help_command, admin_stats и webhook из предыдущего кода)
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
