@@ -335,4 +335,216 @@ def admin_stats(message):
     if str(message.from_user.id) != ADMIN_ID:
         return
     
-    total_users, total
+    total_users, total_requests, recent_users = get_stats()
+    
+    text = f"📊 <b>Админ-панель</b>\n\n"
+    text += f"👥 Всего пользователей: <b>{total_users}</b>\n"
+    text += f"📸 Всего запросов: <b>{total_requests}</b>\n\n"
+    text += "📋 <b>Последние 10 пользователей:</b>\n"
+    
+    for i, u in enumerate(recent_users, 1):
+        name = u[3] if u[3] else "—"
+        username = f"@{u[2]}" if u[2] else "—"
+        text += f"{i}. {name} ({username}) — {u[7]} запросов\n"
+    
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    user_id = str(message.from_user.id)
+    log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
+    
+    wait_msg = bot.reply_to(message, "⏳ Обрабатываю фото...\n\n🔄 Этап 1/3: Ретушь изображения...")
+    
+    try:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        # Этап 1: Ретушь
+        retouched_url = retouch_photo(downloaded_file)
+        if not retouched_url:
+            bot.edit_message_text("❌ Не удалось обработать фото. Попробуйте другое изображение.", 
+                                  message.chat.id, wait_msg.message_id)
+            return
+        
+        bot.edit_message_text("⏳ Обрабатываю фото...\n\n✅ Этап 1/3: Ретушь завершена\n🔄 Этап 2/3: Создание карточки...", 
+                              message.chat.id, wait_msg.message_id)
+        
+        # Этап 2: Генерация карточки
+        card_url = create_card(retouched_url)
+        if not card_url:
+            bot.edit_message_text("❌ Не удалось создать карточку. Попробуйте ещё раз.", 
+                                  message.chat.id, wait_msg.message_id)
+            return
+        
+        # Сохраняем карточку для пользователя
+        user_cards[user_id] = card_url
+        
+        bot.edit_message_text("⏳ Обрабатываю фото...\n\n✅ Этап 1/3: Ретушь завершена\n✅ Этап 2/3: Карточка создана\n🔄 Этап 3/3: Подготовка текста...", 
+                              message.chat.id, wait_msg.message_id)
+        
+        # Удаляем сообщение о прогрессе
+        try:
+            bot.delete_message(message.chat.id, wait_msg.message_id)
+        except:
+            pass
+        
+        # Отправляем карточку с выбором варианта текста
+        markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            telebot.types.InlineKeyboardButton("✨ Автоматический текст (AI)", callback_data="auto_text"),
+            telebot.types.InlineKeyboardButton("✍️ Ввести свой текст", callback_data="custom_text"),
+            telebot.types.InlineKeyboardButton("🚫 Без текста", callback_data="no_text")
+        )
+        
+        bot.send_photo(
+            message.chat.id, 
+            card_url, 
+            caption="✅ <b>Карточка готова!</b>\n\nВыберите вариант добавления текста:", 
+            reply_markup=markup,
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        print(f"Ошибка обработки: {e}")
+        bot.send_message(message.chat.id, "❌ Произошла ошибка при обработке. Попробуйте ещё раз.")
+        try:
+            bot.delete_message(message.chat.id, wait_msg.message_id)
+        except:
+            pass
+
+# --- ОБРАБОТЧИКИ CALLBACK КНОПОК ---
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    user_id = str(call.from_user.id)
+    
+    if call.data == "auto_text":
+        card_url = user_cards.get(user_id)
+        if not card_url:
+            bot.answer_callback_query(call.id, "❌ Карточка не найдена. Отправьте фото заново.")
+            return
+        
+        bot.answer_callback_query(call.id, "⏳ Генерирую описание...")
+        wait_msg = bot.send_message(call.message.chat.id, "⏳ Генерирую AI-описание товара...")
+        
+        # Генерация описания
+        description = generate_product_description(card_url)
+        if not description:
+            description = "Премиум товар"
+        
+        bot.edit_message_text(f"⏳ Описание готово!\n\n📝 <b>{description}</b>\n\nНакладываю текст на изображение...", 
+                              call.message.chat.id, wait_msg.message_id, parse_mode="HTML")
+        
+        # Наложение текста
+        final_image = add_premium_text_to_image(card_url, description)
+        
+        try:
+            bot.delete_message(call.message.chat.id, wait_msg.message_id)
+        except:
+            pass
+        
+        if final_image:
+            bot.send_photo(
+                call.message.chat.id, 
+                final_image, 
+                caption=f"✅ <b>Готовая карточка с текстом!</b>\n\n📝 {description}",
+                parse_mode="HTML"
+            )
+        else:
+            bot.send_message(call.message.chat.id, "❌ Не удалось наложить текст. Вот карточка без текста:")
+            bot.send_photo(call.message.chat.id, card_url)
+    
+    elif call.data == "custom_text":
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(
+            call.message.chat.id, 
+            "✍️ <b>Введите текст для карточки:</b>\n\n"
+            "Можно использовать:\n"
+            "• Название товара\n"
+            "• Ключевые характеристики\n"
+            "• Акцию или скидку\n\n"
+            "Рекомендуется 2-5 слов для лучшего вида.",
+            parse_mode="HTML"
+        )
+        bot.register_next_step_handler(msg, process_custom_text)
+    
+    elif call.data == "no_text":
+        card_url = user_cards.get(user_id)
+        if card_url:
+            bot.answer_callback_query(call.id, "✅ Отправляю без текста")
+            bot.send_photo(
+                call.message.chat.id, 
+                card_url, 
+                caption="✅ <b>Карточка без текста</b>",
+                parse_mode="HTML"
+            )
+        else:
+            bot.answer_callback_query(call.id, "❌ Карточка не найдена")
+
+def process_custom_text(message):
+    """Обработка пользовательского текста"""
+    user_id = str(message.from_user.id)
+    card_url = user_cards.get(user_id)
+    
+    if not card_url:
+        bot.send_message(message.chat.id, "❌ Карточка не найдена. Отправьте фото заново.")
+        return
+    
+    custom_text = message.text.strip()
+    
+    if len(custom_text) > 100:
+        bot.send_message(message.chat.id, "⚠️ Текст слишком длинный (максимум 100 символов). Попробуйте короче.")
+        return
+    
+    wait_msg = bot.send_message(message.chat.id, f"⏳ Накладываю текст:\n\n<b>{custom_text}</b>", parse_mode="HTML")
+    
+    # Наложение текста
+    final_image = add_premium_text_to_image(card_url, custom_text)
+    
+    try:
+        bot.delete_message(message.chat.id, wait_msg.message_id)
+    except:
+        pass
+    
+    if final_image:
+        bot.send_photo(
+            message.chat.id, 
+            final_image, 
+            caption=f"✅ <b>Готовая карточка!</b>\n\n📝 {custom_text}",
+            parse_mode="HTML"
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ Не удалось наложить текст.")
+
+# --- WEBHOOK ---
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return '', 403
+
+@app.route('/')
+def index():
+    return "🤖 Бот работает! Версия 2.0 с профессиональным текстом"
+
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'users': len(user_cards)}, 200
+
+# --- ЗАПУСК ---
+
+if __name__ == '__main__':
+    railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway_url:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"https://{railway_url}/webhook")
+        print(f"✅ Webhook установлен: https://{railway_url}/webhook")
+    
+    print("🚀 Бот запущен с профессиональным наложением текста!")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 3000)))
+    
