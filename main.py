@@ -82,6 +82,24 @@ bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
+# --- КЛАВИАТУРЫ ---
+def main_keyboard(user_id):
+    """Основная клавиатура с кнопками"""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    
+    # Кнопки для всех
+    btn_start = types.KeyboardButton("🏠 Главная")
+    btn_help = types.KeyboardButton("❓ Помощь")
+    markup.add(btn_start, btn_help)
+    
+    # Админ-кнопка только для вас
+    if str(user_id) == ADMIN_ID:
+        btn_admin = types.KeyboardButton("📊 Админ-панель")
+        markup.add(btn_admin)
+    
+    return markup
+
+# --- ФУНКЦИИ ОБРАБОТКИ ФОТО ---
 def retouch_photo(product_bytes):
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
@@ -106,22 +124,51 @@ def create_card(product_url):
         return None
     return None
 
+# --- ОБРАБОТЧИКИ КОМАНД ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
+    markup = main_keyboard(user_id)
+    bot.send_message(message.chat.id, "👋 Привет! Я создаю карточки товаров для маркетплейсов.\n\n📸 Просто отправь мне фото товара, и я сделаю из него профессиональную карточку!\n\nИспользуйте кнопки ниже для навигации.", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "🏠 Главная")
+def main_menu(message):
+    user_id = str(message.from_user.id)
+    log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
+    markup = main_keyboard(user_id)
+    bot.send_message(message.chat.id, "📸 Отправьте фото товара, чтобы создать карточку.", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "❓ Помощь")
+def help_command(message):
+    user_id = str(message.from_user.id)
+    log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
+    markup = main_keyboard(user_id)
+    help_text = """📋 <b>Как пользоваться ботом:</b>
+
+1️⃣ <b>Сделайте фото товара</b>
+Лучше всего снимать на нейтральном фоне с хорошим освещением.
+
+2️⃣ <b>Отправьте фото боту</b>
+Просто прикрепите фото и отправьте как обычно.
+
+3️⃣ <b>Бот обработает фото</b>
+Подождите около 30-40 секунд.
+
+4️⃣ <b>Получите готовую карточку</b>
+Карточка будет в стиле Wildberries / Ozon.
+
+<b>Доступные кнопки:</b>
+🏠 Главная — основное меню
+❓ Помощь — эта инструкция"""
     
-    # Диагностика — выведет в логи Railway ваш ID
-    print(f"DEBUG: User ID = {user_id}, Admin ID = {ADMIN_ID}, Match = {user_id == ADMIN_ID}")
+    # Добавляем админ-кнопку в справку, если это вы
+    if str(user_id) == ADMIN_ID:
+        help_text += "\n📊 Админ-панель — статистика бота (только для администратора)"
     
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    if user_id == ADMIN_ID:
-        print("DEBUG: Adding admin button")
-        markup.add(types.KeyboardButton("📊 Статистика"))
-    else:
-        print("DEBUG: User is not admin, no button added")
-    
-    bot.send_message(message.chat.id, "Пришли фото товара, и я создам карточку для маркетплейса.", reply_markup=markup)
+    bot.send_message(message.chat.id, help_text, parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
@@ -135,27 +182,31 @@ def handle_photo(message):
         # Ретушь
         retouched_url = retouch_photo(downloaded_file)
         if not retouched_url:
-            bot.edit_message_text("❌ Не удалось обработать фото.", message.chat.id, wait_msg.message_id)
+            bot.edit_message_text("❌ Не удалось обработать фото. Попробуйте сделать фото при хорошем освещении на нейтральном фоне.", message.chat.id, wait_msg.message_id)
             return
         
-        # Генерация карточки (без текста)
+        # Генерация карточки
         card_url = create_card(retouched_url)
         if card_url:
-            bot.send_photo(message.chat.id, card_url, caption="✅ Готовая карточка!")
+            markup = main_keyboard(user_id)
+            bot.send_photo(message.chat.id, card_url, caption="✅ Готовая карточка!\n\nОтправьте ещё фото для новой карточки.", reply_markup=markup)
         else:
-            bot.send_message(message.chat.id, "❌ Не удалось создать карточку.")
+            bot.send_message(message.chat.id, "❌ Не удалось создать карточку. Попробуйте другое фото или повторите позже.")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка при обработке: попробуйте ещё раз.")
     finally:
-        bot.delete_message(message.chat.id, wait_msg.message_id)
+        try:
+            bot.delete_message(message.chat.id, wait_msg.message_id)
+        except:
+            pass
 
-@bot.message_handler(func=lambda m: m.text == "📊 Статистика" and str(m.from_user.id) == ADMIN_ID)
+@bot.message_handler(func=lambda m: m.text == "📊 Админ-панель" and str(m.from_user.id) == ADMIN_ID)
 def admin_stats(message):
     total_users, total_requests, recent_users = get_stats()
     
-    text = f"📊 <b>Статистика бота</b>\n\n"
-    text += f"👥 Пользователей: <b>{total_users}</b>\n"
-    text += f"📸 Запросов: <b>{total_requests}</b>\n\n"
+    text = f"📊 <b>Админ-панель</b>\n\n"
+    text += f"👥 Всего пользователей: <b>{total_users}</b>\n"
+    text += f"📸 Всего запросов: <b>{total_requests}</b>\n\n"
     text += "📋 <b>Последние 10 пользователей:</b>\n"
     
     for i, u in enumerate(recent_users, 1):
@@ -163,7 +214,8 @@ def admin_stats(message):
         username = f"@{u[2]}" if u[2] else "—"
         text += f"{i}. {name} ({username}) — {u[7]} запросов\n"
     
-    bot.send_message(message.chat.id, text, parse_mode="HTML")
+    markup = main_keyboard(message.from_user.id)
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
 # --- WEBHOOK ---
 @app.route('/webhook', methods=['POST'])
