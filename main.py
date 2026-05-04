@@ -1,3 +1,24 @@
+## 📦 **ИТОГОВЫЕ КОДЫ — ПОЛНАЯ ВЕРСИЯ**
+
+---
+
+## 📄 **1. requirements.txt**
+
+```
+flask
+huggingface_hub
+pytelegrambotapi==4.15.0
+dashscope
+flask-login
+Pillow
+requests
+```
+
+---
+
+## 📄 **2. main.py** (ПОЛНЫЙ КОД С ПРЕМИУМ ДИЗАЙНОМ)
+
+```python
 import os
 import sys
 import json
@@ -149,9 +170,8 @@ def generate_product_description(image_url):
         
         if response.status_code == 200:
             text = response.output.choices[0].message.content[0]['text']
-            # Очистка от лишнего
             text = text.strip().replace('"', '').replace("'", "")
-            return text[:50]  # Максимум 50 символов
+            return text[:50]
     except Exception as e:
         print(f"Ошибка генерации описания: {e}")
         return None
@@ -160,7 +180,7 @@ def generate_product_description(image_url):
 def add_premium_text_to_image(image_url, title, subtitle=""):
     """
     Профессиональное наложение текста на изображение
-    Дизайн в стиле премиум маркетплейсов
+    Дизайн в стиле премиум маркетплейсов (как на примере)
     """
     try:
         # Загрузка изображения
@@ -185,123 +205,115 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         
         # --- НАСТРОЙКА ШРИФТОВ ---
         try:
-            font_bold = ImageFont.truetype("/app/Font bold.ttf", int(height * 0.065))
-            font_regular = ImageFont.truetype("/app/Font regular.ttf", int(height * 0.04))
+            font_bold = ImageFont.truetype("/app/Font bold.ttf", int(height * 0.08))
+            font_medium = ImageFont.truetype("/app/Font bold.ttf", int(height * 0.045))
+            font_regular = ImageFont.truetype("/app/Font regular.ttf", int(height * 0.035))
         except:
             try:
-                font_bold = ImageFont.truetype("Font bold.ttf", int(height * 0.065))
-                font_regular = ImageFont.truetype("Font regular.ttf", int(height * 0.04))
+                font_bold = ImageFont.truetype("Font bold.ttf", int(height * 0.08))
+                font_medium = ImageFont.truetype("Font bold.ttf", int(height * 0.045))
+                font_regular = ImageFont.truetype("Font regular.ttf", int(height * 0.035))
             except:
-                # Fallback на системный шрифт
                 font_bold = ImageFont.load_default()
+                font_medium = ImageFont.load_default()
                 font_regular = ImageFont.load_default()
         
         # --- ПОДГОТОВКА ТЕКСТА ---
-        # Перенос длинного заголовка
-        max_chars = 25
-        if len(title) > max_chars:
-            wrapped_title = textwrap.fill(title, width=max_chars)
+        main_title = title.upper()
+        max_chars = 20
+        if len(main_title) > max_chars:
+            wrapped_title = textwrap.fill(main_title, width=max_chars)
         else:
-            wrapped_title = title
+            wrapped_title = main_title
         
-        # --- РАСЧЕТ ПОЗИЦИЙ ---
-        # Заголовок
+        # --- ЗАГОЛОВОК "Интерактивная" (мелкий текст сверху) ---
+        header_text = "Премиум"
+        bbox_header = draw.textbbox((0, 0), header_text, font=font_regular)
+        header_width = bbox_header[2] - bbox_header[0]
+        header_x = (width - header_width) // 2
+        header_y = int(height * 0.05)
+        
+        # Рисуем заголовок (красный)
+        draw.text(
+            (header_x, header_y),
+            header_text,
+            font=font_regular,
+            fill=(220, 60, 60, 255)
+        )
+        
+        # --- ОСНОВНОЙ ЗАГОЛОВОК (крупный) ---
         bbox_title = draw.multiline_textbbox((0, 0), wrapped_title, font=font_bold)
         title_width = bbox_title[2] - bbox_title[0]
         title_height = bbox_title[3] - bbox_title[1]
-        
-        # Позиция: верхняя часть, по центру
         title_x = (width - title_width) // 2
-        title_y = int(height * 0.08)
-        
-        # Подзаголовок (если есть)
-        subtitle_height = 0
-        if subtitle:
-            bbox_subtitle = draw.textbbox((0, 0), subtitle, font=font_regular)
-            subtitle_width = bbox_subtitle[2] - bbox_subtitle[0]
-            subtitle_height = bbox_subtitle[3] - bbox_subtitle[1]
-            subtitle_x = (width - subtitle_width) // 2
-            subtitle_y = title_y + title_height + 15
-        
-        # --- СОЗДАНИЕ ГРАДИЕНТНОЙ ПОДЛОЖКИ ---
-        total_height = title_height + (subtitle_height + 15 if subtitle else 0) + 60
-        
-        # Градиент от темного к прозрачному
-        gradient = Image.new('RGBA', (width, total_height), (0, 0, 0, 0))
-        gradient_draw = ImageDraw.Draw(gradient)
-        
-        for i in range(total_height):
-            alpha = int(160 * (1 - i / total_height))  # Градиент прозрачности
-            gradient_draw.rectangle(
-                [(0, i), (width, i + 1)],
-                fill=(20, 20, 40, alpha)
-            )
-        
-        # Наложение градиента
-        overlay.paste(gradient, (0, title_y - 30), gradient)
-        
-        # --- РИСОВАНИЕ ДЕКОРАТИВНЫХ ЭЛЕМЕНТОВ ---
-        # Акцентная линия над текстом
-        line_width = int(title_width * 0.3)
-        line_x = (width - line_width) // 2
-        line_y = title_y - 15
-        
-        draw.rounded_rectangle(
-            [line_x, line_y, line_x + line_width, line_y + 4],
-            radius=2,
-            fill=(255, 215, 0, 220)  # Золотой цвет
-        )
-        
-        # --- РИСОВАНИЕ ТЕКСТА С ТЕНЬЮ ---
-        shadow_offset = 3
+        title_y = header_y + 40
         
         # Тень заголовка
+        shadow_offset = 4
         draw.multiline_text(
             (title_x + shadow_offset, title_y + shadow_offset),
             wrapped_title,
             font=font_bold,
-            fill=(0, 0, 0, 140),
+            fill=(0, 0, 0, 80),
             align='center',
-            spacing=8
+            spacing=5
         )
         
-        # Основной заголовок (белый)
+        # Основной заголовок (красный)
         draw.multiline_text(
             (title_x, title_y),
             wrapped_title,
             font=font_bold,
-            fill=(255, 255, 255, 255),
+            fill=(220, 60, 60, 255),
             align='center',
-            spacing=8
+            spacing=5
         )
         
-        # Подзаголовок (если есть)
+        # --- КАПСУЛА С ПРИЗЫВОМ К ДЕЙСТВИЮ ---
         if subtitle:
-            # Тень подзаголовка
-            draw.text(
-                (subtitle_x + shadow_offset - 1, subtitle_y + shadow_offset - 1),
-                subtitle,
-                font=font_regular,
-                fill=(0, 0, 0, 100)
-            )
-            
-            # Основной подзаголовок (светло-серый)
-            draw.text(
-                (subtitle_x, subtitle_y),
-                subtitle,
-                font=font_regular,
-                fill=(230, 230, 230, 255)
-            )
+            cta_text = subtitle
+        else:
+            cta_text = "🐾 поймай меня, если сможешь"
+        
+        bbox_cta = draw.textbbox((0, 0), cta_text, font=font_medium)
+        cta_width = bbox_cta[2] - bbox_cta[0]
+        cta_height = bbox_cta[3] - bbox_cta[1]
+        
+        # Позиция капсулы
+        capsule_padding = 25
+        capsule_x = (width - cta_width - capsule_padding * 2) // 2
+        capsule_y = title_y + title_height + 30
+        
+        # Рисуем красную капсулу
+        draw.rounded_rectangle(
+            [capsule_x, capsule_y, 
+             capsule_x + cta_width + capsule_padding * 2, 
+             capsule_y + cta_height + capsule_padding],
+            radius=30,
+            fill=(220, 60, 60, 255)
+        )
+        
+        # Текст в капсуле (белый)
+        draw.text(
+            (capsule_x + capsule_padding, capsule_y + capsule_padding // 2),
+            cta_text,
+            font=font_medium,
+            fill=(255, 255, 255, 255)
+        )
+        
+        # --- ХАРАКТЕРИСТИКИ ВОКРУГ ТОВАРА ---
+        # Можно добавить дополнительные блоки текста по бокам
+        # Пока оставляем базовый дизайн
         
         # --- ФИНАЛЬНОЕ ОБЪЕДИНЕНИЕ ---
         img = img.convert('RGBA')
         final_img = Image.alpha_composite(img, overlay)
         final_img = final_img.convert('RGB')
         
-        # Легкое повышение резкости для четкости текста
+        # Легкое повышение резкости
         final_img = final_img.filter(ImageFilter.SHARPEN)
         
-        # Сохранение в BytesIO
+        # Сохранение
         output = BytesIO()
         final_img.save(output, format='JPEG', quality=95)
         output.seek(0)
@@ -325,7 +337,7 @@ def send_welcome(message):
         "📸 Отправьте фото товара — я:\n"
         "✨ Уберу лишние объекты\n"
         "🎨 Создам студийный фон\n"
-        "📝 Добавлю красивый текст\n\n"
+        "📝 Добавлю красивый дизайнерский текст\n\n"
         "Просто отправьте фото!"
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="HTML")
@@ -448,7 +460,7 @@ def callback_handler(call):
             bot.send_photo(
                 call.message.chat.id, 
                 final_image, 
-                caption=f"✅ <b>Готовая карточка с текстом!</b>\n\n📝 {description}",
+                caption=f"✅ <b>Готовая карточка с премиум-дизайном!</b>\n\n📝 {description}",
                 parse_mode="HTML"
             )
         else:
@@ -511,7 +523,7 @@ def process_custom_text(message):
         bot.send_photo(
             message.chat.id, 
             final_image, 
-            caption=f"✅ <b>Готовая карточка!</b>\n\n📝 {custom_text}",
+            caption=f"✅ <b>Готовая карточка с премиум-дизайном!</b>\n\n📝 {custom_text}",
             parse_mode="HTML"
         )
     else:
@@ -530,7 +542,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return "🤖 Бот работает! Версия 2.0 с профессиональным текстом"
+    return "🤖 Бот работает! Версия 2.0 с премиум-дизайном карточек"
 
 @app.route('/health')
 def health():
@@ -545,6 +557,5 @@ if __name__ == '__main__':
         bot.set_webhook(url=f"https://{railway_url}/webhook")
         print(f"✅ Webhook установлен: https://{railway_url}/webhook")
     
-    print("🚀 Бот запущен с профессиональным наложением текста!")
+    print("🚀 Бот запущен с профессиональным премиум-дизайном!")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 3000)))
-    
