@@ -111,10 +111,15 @@ def send_welcome(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
     
-    # Сначала отправляем сообщение с клавиатурой
+    # Диагностика — выведет в логи Railway ваш ID
+    print(f"DEBUG: User ID = {user_id}, Admin ID = {ADMIN_ID}, Match = {user_id == ADMIN_ID}")
+    
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     if user_id == ADMIN_ID:
+        print("DEBUG: Adding admin button")
         markup.add(types.KeyboardButton("📊 Статистика"))
+    else:
+        print("DEBUG: User is not admin, no button added")
     
     bot.send_message(message.chat.id, "Пришли фото товара, и я создам карточку для маркетплейса.", reply_markup=markup)
 def handle_photo(message):
