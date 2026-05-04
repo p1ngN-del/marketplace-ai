@@ -16,7 +16,7 @@ from dashscope import MultiModalConversation
 TG_TOKEN = os.environ.get("TG_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")
-ADMIN_ID = os.environ.get("ADMIN_ID", "8197880482")
+ADMIN_ID = os.environ.get("ADMIN_ID", "7101357158")
 
 if not all([TG_TOKEN, HF_TOKEN, DASHSCOPE_API_KEY]):
     raise Exception("Не хватает токенов! Проверьте переменные на Railway.")
