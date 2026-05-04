@@ -111,9 +111,7 @@ def send_welcome(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
     
-    # Временная строка для диагностики — покажет ваш ID и ID админа
-    bot.send_message(message.chat.id, f"🔍 Ваш ID: {user_id}\n🔍 ID админа в коде: {ADMIN_ID}\n🔍 Совпадают: {user_id == ADMIN_ID}")
-    
+    # Сначала отправляем сообщение с клавиатурой
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     if user_id == ADMIN_ID:
         markup.add(types.KeyboardButton("📊 Статистика"))
