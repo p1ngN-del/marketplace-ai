@@ -3,3 +3,5 @@ huggingface_hub
 pytelegrambotapi==4.15.0
 dashscope
 flask-login
+Pillow
+requests
