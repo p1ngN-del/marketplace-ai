@@ -107,7 +107,7 @@ set_bot_commands()
 user_data = {}
 user_analysis = {}
 
-# --- СТИЛИ ФОНОВ (исправлены синтаксические ошибки) ---
+# --- СТИЛИ ФОНОВ ---
 BG_STYLES = {
     "clean_white": {"name": "🤍 Чистый белый", "prompt": "Clean pure white studio background, professional product photography, soft shadows", "brightness": 250, "text_color": (30, 30, 30), "accent_color": (100, 100, 100)},
     "gradient_warm": {"name": "🧡 Теплый градиент", "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel", "brightness": 200, "text_color": (60, 40, 20), "accent_color": (180, 100, 60)},
@@ -120,33 +120,34 @@ BG_STYLES = {
 }
 
 # --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ---
-def isolate_product(product_bytes):
-    """Вырезает товар и возвращает его на прозрачном фоне"""
+def retouch_photo(product_bytes, style_key="clean_white", angle_hint=""):
+    """Создаёт готовую карточку с товаром на выбранном фоне."""
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
-        prompt = "Isolate the product on a pure transparent background. Keep only the product itself, no shadows, no extra objects. High quality."
-        messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
-        response = MultiModalConversation.call(api_key=DASHSCOPE_API_KEY, model="qwen-image-edit-plus", messages=messages, n=1, watermark=False, size="1024*1536")
-        if response.status_code == 200:
-            return response.output.choices[0].message.content[0]['image']
-    except Exception as e:
-        print(f"Ошибка изоляции: {e}")
-    return None
-
-def generate_background(style_key="clean_white"):
-    """Создаёт пустой фон в выбранном стиле"""
-    try:
         style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
-        prompt = f"Empty {style['prompt']}. NO PRODUCT, just the background texture and lighting. High resolution."
-        messages = [{"role": "user", "content": [{"text": prompt}]}]
-        response = MultiModalConversation.call(api_key=DASHSCOPE_API_KEY, model="qwen-image-2.0-pro", messages=messages, n=1, watermark=False, size="1024*1536")
+        
+        angle_prompt = f"Show the product from a different angle. {angle_hint}. " if angle_hint else ""
+        
+        prompt = f"{angle_prompt}Place the product on a beautiful {style['prompt']}. Studio lighting, high quality, professional product photography. The image should look like a ready-made premium marketplace card WITHOUT ANY TEXT OR WATERMARKS."
+        
+        messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
+        response = MultiModalConversation.call(
+            api_key=DASHSCOPE_API_KEY, 
+            model="qwen-image-edit-plus", 
+            messages=messages, 
+            n=1, 
+            watermark=False, 
+            size="1024*1536"
+        )
         if response.status_code == 200:
             return response.output.choices[0].message.content[0]['image']
     except Exception as e:
-        print(f"Ошибка создания фона: {e}")
+        print(f"Ошибка ретуши: {e}")
+        return None
     return None
 
+# --- ШРИФТЫ ---
 def get_font(size, weight='regular'):
     fonts = {
         'bold': ['/app/Montserrat-Bold.ttf', '/app/font_bold.ttf'],
@@ -168,33 +169,9 @@ def get_font(size, weight='regular'):
             return ImageFont.truetype(fp, size)
     return ImageFont.load_default()
 
-def compose_card(product_url, bg_url, style_key="clean_white"):
-    """Объединяет товар с фоном"""
-    try:
-        if product_url.startswith('http'):
-            product_img = Image.open(BytesIO(requests.get(product_url, timeout=30).content)).convert('RGBA')
-        else:
-            product_img = Image.open(BytesIO(requests.get(product_url).content)).convert('RGBA')
-        if bg_url.startswith('http'):
-            bg_img = Image.open(BytesIO(requests.get(bg_url, timeout=30).content)).convert('RGBA')
-        else:
-            bg_img = Image.open(BytesIO(requests.get(bg_url).content)).convert('RGBA')
-        
-        target_height = int(bg_img.height * 0.7)
-        ratio = target_height / product_img.height
-        new_width = int(product_img.width * ratio)
-        product_img = product_img.resize((new_width, target_height), Image.LANCZOS)
-        
-        x = (bg_img.width - new_width) // 2
-        y = (bg_img.height - target_height) // 2
-        bg_img.paste(product_img, (x, y), product_img)
-        return bg_img
-    except Exception as e:
-        print(f"Ошибка компоновки: {e}")
-    return None
-
+# --- ИНФОГРАФИКА ---
 def add_infographic(base_image, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
-    """Создаёт инфографику с полупрозрачными плашками в гамме фона"""
+    """Накладывает текст на готовую карточку. Дизайн адаптируется под фон."""
     try:
         style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
         width, height = base_image.size
@@ -207,11 +184,13 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
+        # Заголовок ПРЕМИУМ
         header_text = "ПРЕМИУМ КАЧЕСТВО"
         header_font = get_font(int(height * 0.025), 'regular')
         hw = draw.textbbox((0, 0), header_text, font=header_font)[2]
         draw.text(((width - hw) // 2, int(height * 0.03)), header_text, font=header_font, fill=style['text_color'])
         
+        # Характеристики
         if features and len(features) > 0:
             badge_w = int(width * 0.38)
             badge_h = int(height * 0.10)
@@ -229,6 +208,7 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
                 draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
         
+        # Бонусы
         y_bonus = int(height * 0.68)
         if bonuses and len(bonuses) > 0:
             for bonus in bonuses[:2]:
@@ -240,6 +220,7 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['text_color'])
                 y_bonus += bh + 10
         
+        # Триггеры
         if triggers and len(triggers) > 0:
             for trigger in triggers[:2]:
                 text = trigger[:35]
@@ -250,6 +231,7 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['text_color'])
                 y_bonus += th + 8
         
+        # Заголовок
         if title:
             title_text = title.upper()[:40]
             title_font = get_font(int(height * 0.07), 'bold')
@@ -317,7 +299,6 @@ def callback_handler(call):
     elif data == "mode_ai":
         bot.answer_callback_query(call.id)
         run_ai_mode(call.message, user_id)
-    # остальные коллбэки можно добавить позже
 
 def run_ai_mode(message, user_id):
     chat_id = message.chat.id
@@ -327,33 +308,37 @@ def run_ai_mode(message, user_id):
 def progress_analysis(chat_id, msg_id, user_id):
     photo = user_data[user_id]['photo']
     style_key = user_data[user_id]['style']
-    bot.edit_message_text("🔎 <b>Анализ: Шаг 1/4 — Выделяю товар</b> (⏱️ ~10 сек)", chat_id, msg_id, parse_mode="HTML")
-    isolated_url = isolate_product(photo)
-    if not isolated_url:
+    
+    # Шаг 1: Готовая карточка с фронтального ракурса
+    bot.edit_message_text("🔎 <b>Анализ: Шаг 1/4 — Создаю карточку</b> (⏱️ ~15 сек)", chat_id, msg_id, parse_mode="HTML")
+    base_card_url = retouch_photo(photo, style_key)
+    if not base_card_url:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось обработать фото.", chat_id, msg_id, parse_mode="HTML")
         return
-    bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю фон</b> (⏱️ ~15 сек)", chat_id, msg_id, parse_mode="HTML")
-    bg_url = generate_background(style_key)
-    if not bg_url:
-        bot.edit_message_text("❌ <b>Ошибка:</b> не удалось создать фон.", chat_id, msg_id, parse_mode="HTML")
-        return
-    bot.edit_message_text("🔎 <b>Анализ: Шаг 3/4 — Собираю карточку</b> (⏱️ ~5 сек)", chat_id, msg_id, parse_mode="HTML")
-    base_card = compose_card(isolated_url, bg_url)
-    if not base_card:
-        bot.edit_message_text("❌ <b>Ошибка:</b> не удалось собрать карточку.", chat_id, msg_id, parse_mode="HTML")
-        return
-    bot.edit_message_text("🧠 <b>Анализ: Шаг 4/4 — Изучаю товар и придумываю вопросы</b> (⏱️ ~25 сек)", chat_id, msg_id, parse_mode="HTML")
-    analysis = deep_analyze_and_generate_questions(isolated_url)
+    
+    # Шаг 2: Создаём дополнительные ракурсы
+    bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю ракурсы</b> (⏱️ ~20 сек)", chat_id, msg_id, parse_mode="HTML")
+    left_card_url = retouch_photo(photo, style_key, "angle slightly from the left side, 3/4 view")
+    right_card_url = retouch_photo(photo, style_key, "angle slightly from the right side, 3/4 view")
+    
+    # Шаг 3: Глубокий AI-анализ
+    bot.edit_message_text("🧠 <b>Анализ: Шаг 3/4 — Изучаю товар</b> (⏱️ ~25 сек)", chat_id, msg_id, parse_mode="HTML")
+    analysis = deep_analyze_and_generate_questions(base_card_url)
     if not analysis:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось проанализировать товар.", chat_id, msg_id, parse_mode="HTML")
         return
-    user_data[user_id]['isolated'] = isolated_url
-    user_data[user_id]['base_card'] = base_card
+    
+    # Сохраняем результаты
+    user_data[user_id]['base_card'] = base_card_url
+    user_data[user_id]['left_card'] = left_card_url
+    user_data[user_id]['right_card'] = right_card_url
     user_analysis[user_id] = analysis
     user_analysis[user_id]['answers'] = []
     user_analysis[user_id]['current_q'] = 0
+    
     questions = analysis.get('questions', [])
     num_questions = len(questions)
+    
     bot.edit_message_text(
         f"✅ <b>Анализ завершён!</b>\n\n📦 <b>Категория:</b> {analysis.get('category', 'Товар')}\n🎯 <b>Целевая аудитория:</b> {analysis.get('target_audience', 'Не определена')}\n❓ <b>Подготовлено вопросов:</b> {num_questions}\n\n<i>Начинаю опрос...</i>",
         chat_id, msg_id, parse_mode="HTML"
@@ -432,29 +417,43 @@ def finish_ai_mode(chat_id, user_id):
     bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
-    base_card = user_data[user_id]['base_card']
     style_key = user_data[user_id]['style']
+    title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
+
     features = []
     bonuses = []
     triggers = []
-    title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
+
     for i, ans in enumerate(answers):
         if not ans: continue
         if i == 0 and len(ans) > 2: features.append({"icon": "🔷", "label": "Материал", "value": ans[:20]})
         elif i == 1 and len(ans) > 2: features.append({"icon": "✅", "label": "Совместимость", "value": ans[:20]})
-        elif i == 2 and len(ans) > 2: bonuses.append(f"🎁 {ans[:25]}")
-        elif i == 3 and len(ans) > 2: triggers.append(f"⏰ {ans[:25]}")
-        elif len(ans) > 2: features.append({"icon": "⭐", "label": analysis.get('key_features', [""])[0][:20] if analysis.get('key_features') else "Характеристика", "value": ans[:20]})
-    if len(features) < 2: features.append({"icon": "📦", "label": "Категория", "value": analysis.get('category', 'Товар')[:20]})
+        elif i == 2 and len(ans) > 2: features.append({"icon": "⭐", "label": "Характеристика", "value": ans[:20]})
+        elif i == 3 and len(ans) > 2: bonuses.append(f"🎁 {ans[:25]}")
+        elif i == 4 and len(ans) > 2: triggers.append(f"⏰ {ans[:25]}")
+        elif len(ans) > 2: features.append({"icon": "📦", "label": "Особенность", "value": ans[:20]})
+
     if not bonuses: bonuses.append("🚚 Быстрая доставка")
     if not triggers: triggers.append("🔥 Хит продаж")
+
+    # Создаём три разные карточки
     cards = []
-    card1 = add_infographic(base_card.copy(), title, features[:2], None, None, style_key)
+    base_img = Image.open(BytesIO(requests.get(user_data[user_id]['base_card']).content)).convert('RGBA')
+    left_img = Image.open(BytesIO(requests.get(user_data[user_id].get('left_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
+    right_img = Image.open(BytesIO(requests.get(user_data[user_id].get('right_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
+
+    # Карточка 1: Название и первая характеристика
+    card1 = add_infographic(base_img, title, features[:1] if features else None, None, None, style_key)
     if card1: cards.append(card1)
-    card2 = add_infographic(base_card.copy(), None, features, None, None, style_key)
+
+    # Карточка 2: Остальные характеристики
+    card2 = add_infographic(left_img, None, features[1:3] if len(features) > 1 else None, None, None, style_key)
     if card2: cards.append(card2)
-    card3 = add_infographic(base_card.copy(), None, None, bonuses, triggers, style_key)
+
+    # Карточка 3: Бонусы и триггеры
+    card3 = add_infographic(right_img, None, features[3:4] if len(features) > 3 else None, bonuses, triggers, style_key)
     if card3: cards.append(card3)
+
     if cards:
         for i, card in enumerate(cards):
             bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/3")
