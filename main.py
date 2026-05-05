@@ -109,14 +109,62 @@ user_analysis = {}
 
 # --- СТИЛИ ФОНОВ ---
 BG_STYLES = {
-    "clean_white": {"name": "🤍 Чистый белый", "prompt": "Clean pure white studio background, professional product photography, soft shadows", "brightness": 250, "text_color": (30, 30, 30), "accent_color": (100, 100, 100)},
-    "gradient_warm": {"name": "🧡 Теплый градиент", "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel", "brightness": 200, "text_color": (60, 40, 20), "accent_color": (180, 100, 60)},
-    "dark_luxury": {"name": "🖤 Темная роскошь", "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography", "brightness": 50, "text_color": (255, 255, 255), "accent_color": (180, 180, 180)},
-    "mint_fresh": {"name": "💚 Мятная свежесть", "prompt": "Soft mint green background, fresh clean look, organic natural product feel", "brightness": 220, "text_color": (20, 60, 40), "accent_color": (80, 160, 120)},
-    "sky_blue": {"name": "💙 Небесный", "prompt": "Soft sky blue gradient background, airy light feel, tech modern product", "brightness": 210, "text_color": (20, 40, 80), "accent_color": (80, 140, 220)},
-    "rose_gold": {"name": "🩷 Розовое золото", "prompt": "Rose gold pink background, feminine elegant, soft pink and gold tones", "brightness": 200, "text_color": (80, 30, 40), "accent_color": (200, 100, 120)},
-    "neon_tech": {"name": "💜 Неоновый", "prompt": "Dark background with neon purple and blue accents, cyberpunk tech style, glowing edges", "brightness": 60, "text_color": (255, 255, 255), "accent_color": (200, 100, 255)},
-    "wood_natural": {"name": "🤎 Натуральное дерево", "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly", "brightness": 180, "text_color": (60, 40, 20), "accent_color": (160, 120, 80)}
+    "clean_white": {
+        "name": "🤍 Чистый белый",
+        "prompt": "Clean pure white studio background, professional product photography, soft shadows",
+        "bg_color": (248, 248, 248), # Мягкий белый
+        "text_color": (50, 50, 50),   # Тёмно-серый текст (контраст > 7:1)
+        "accent_color": (0, 120, 200), # Акцентный синий
+    },
+    "gradient_warm": {
+        "name": "🧡 Теплый градиент",
+        "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel",
+        "bg_color": (253, 240, 230),
+        "text_color": (80, 45, 30),
+        "accent_color": (220, 100, 50),
+    },
+    "dark_luxury": {
+        "name": "🖤 Темная роскошь",
+        "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography",
+        "bg_color": (34, 34, 38),    # Мягкий чёрный
+        "text_color": (240, 240, 245), # Светло-серый текст
+        "accent_color": (255, 215, 0), # Золотой акцент
+    },
+    "mint_fresh": {
+        "name": "💚 Мятная свежесть",
+        "prompt": "Soft mint green background, fresh clean look, organic natural product feel",
+        "bg_color": (235, 250, 245),
+        "text_color": (25, 60, 45),
+        "accent_color": (0, 160, 130),
+    },
+    "sky_blue": {
+        "name": "💙 Небесный",
+        "prompt": "Soft sky blue gradient background, airy light feel, tech modern product",
+        "bg_color": (235, 245, 255),
+        "text_color": (25, 50, 80),
+        "accent_color": (0, 100, 210),
+    },
+    "rose_gold": {
+        "name": "🩷 Розовое золото",
+        "prompt": "Rose gold pink background, feminine elegant, soft pink and gold tones",
+        "bg_color": (252, 240, 245),
+        "text_color": (90, 40, 50),
+        "accent_color": (210, 80, 110),
+    },
+    "neon_tech": {
+        "name": "💜 Неоновый",
+        "prompt": "Dark background with neon purple and blue accents, cyberpunk tech style, glowing edges",
+        "bg_color": (25, 22, 40),
+        "text_color": (245, 240, 255),
+        "accent_color": (180, 130, 255),
+    },
+    "wood_natural": {
+        "name": "🤎 Натуральное дерево",
+        "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly",
+        "bg_color": (245, 240, 230),
+        "text_color": (70, 50, 30),
+        "accent_color": (150, 100, 60),
+    }
 }
 
 # --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ---
@@ -178,19 +226,23 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # --- НАСТРОЙКИ ЦВЕТА ---
+        # --- НАСТРОЙКИ ЦВЕТА (Правило 60-30-10) ---
         r, g, b = style['text_color']
-        # Полупрозрачные плашки и шрифты
-        plate_fill = (r, g, b, 40)  
-        plate_outline = (r, g, b, 20)
-        text_fill = (r, g, b, 180)  # Полупрозрачный текст
+        # 30% - Дополнительный цвет (полупрозрачный цвет текста для плашек)
+        plate_fill = (r, g, b, 50)  
+        plate_outline = (r, g, b, 30)
+        # 10% - Акцентный цвет (для кнопок, важных меток)
+        ar, ag, ab = style['accent_color']
+        accent_fill = (ar, ag, ab, 180)
+        
+        text_fill = (r, g, b, 220)  # Полупрозрачный текст
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
         # --- ЗАГОЛОВОК КАРТОЧКИ (НАЗВАНИЕ ТОВАРА) ---
         if title:
             title_text = title.upper()[:40]
-            title_font = get_font(int(height * 0.035), 'regular') # Заменил bold на regular
+            title_font = get_font(int(height * 0.035), 'regular')
             tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
             draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
@@ -215,29 +267,26 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
 
                     # --- ЗАГОЛОВОК ПЛАШКИ (ВВЕРХУ, НЕ ЖИРНЫЙ) ---
                     if label and label != "НЕТ":
-                        label_font = get_font(int(height * 0.023), 'regular') # Убрал жирность
+                        label_font = get_font(int(height * 0.023), 'regular')
                         lw = draw.textbbox((0, 0), label, font=label_font)[2]
-                        # Центрируем заголовок по центру плашки
                         lx = bx + (badge_w - lw) // 2
                         draw.text((lx, by + int(height * 0.01)), label, font=label_font, fill=text_fill)
                     
                     # --- ХАРАКТЕРИСТИКА (ВНИЗУ, НЕ ЖИРНАЯ) ---
-                    if display_value:
-                        # Динамический подбор шрифта под размер плашки
+                    if value:
                         max_val_width = badge_w - 20
                         val_font_size = int(height * 0.028) 
-                        val_font = get_font(val_font_size, 'regular') # Убрал жирность
+                        val_font = get_font(val_font_size, 'regular')
                         
-                        while draw.textbbox((0, 0), display_value, font=val_font)[2] > max_val_width and val_font_size > 10:
+                        while draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width and val_font_size > 10:
                             val_font_size -= 1
                             val_font = get_font(val_font_size, 'regular')
                         
-                        vw = draw.textbbox((0, 0), display_value, font=val_font)[2]
-                        # Центрируем значение по центру плашки
+                        vw = draw.textbbox((0, 0), value, font=val_font)[2]
                         vx = bx + (badge_w - vw) // 2
-                        draw.text((vx, by + int(height * 0.055)), display_value, font=val_font, fill=text_fill)
+                        draw.text((vx, by + int(height * 0.055)), value, font=val_font, fill=text_fill)
         
-        # --- БОНУСЫ (НИЖНИЕ ПЛАШКИ) ---
+        # --- БОНУСЫ (НИЖНИЕ ПЛАШКИ С АКЦЕНТНЫМ ЦВЕТОМ) ---
         y_bonus = int(height * 0.68)
         if bonuses and len(bonuses) > 0:
             for bonus in bonuses[:2]:
@@ -247,8 +296,8 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 bonus_font = get_font(int(height * 0.03), 'regular')
                 tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
                 bh = int(height * 0.06)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=text_fill)
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=accent_fill, outline=None, width=0)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['bg_color'])
                 y_bonus += bh + 10
         
         # --- ТРИГГЕРЫ (ПЛАШКИ С АКЦИЯМИ) ---
@@ -260,8 +309,8 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 trigger_font = get_font(int(height * 0.025), 'regular')
                 tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
                 th = int(height * 0.05)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=text_fill)
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=accent_fill, outline=None, width=0)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['bg_color'])
                 y_bonus += th + 8
         
         # --- СБОРКА ---
