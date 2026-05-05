@@ -213,7 +213,7 @@ def get_font(size, weight='regular'):
 def add_premium_text_to_image(image_url, title, subtitle=""):
     """
     Профессиональное наложение текста на изображение
-    Гарантированно работает с русским текстом
+    Адаптируется под цветовую гамму карточки
     """
     try:
         # Загрузка изображения
@@ -232,96 +232,225 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         
         width, height = img.size
         
+        # --- АНАЛИЗ ЦВЕТОВОЙ ГАММЫ КАРТОЧКИ ---
+        # Берём образцы пикселей из разных зон
+        sample_points = [
+            (width // 4, height // 4),
+            (width * 3 // 4, height // 4),
+            (width // 2, height // 2),
+            (width // 4, height * 3 // 4),
+            (width * 3 // 4, height * 3 // 4),
+        ]
+        
+        total_brightness = 0
+        for x, y in sample_points:
+            r, g, b, a = img.getpixel((min(x, width-1), min(y, height-1)))
+            brightness = (r * 0.299 + g * 0.587 + b * 0.114)
+            total_brightness += brightness
+        
+        avg_brightness = total_brightness / len(sample_points)
+        
+        # Определяем цвета текста в зависимости от фона
+        if avg_brightness > 180:  # Светлый фон
+            text_color = (30, 30, 30, 255)  # Тёмно-серый
+            accent_color = (200, 50, 50, 255)  # Красный акцент
+            shadow_color = (255, 255, 255, 100)  # Белая тень
+        elif avg_brightness > 100:  # Средний фон
+            text_color = (255, 255, 255, 255)  # Белый
+            accent_color = (255, 200, 50, 255)  # Золотой
+            shadow_color = (0, 0, 0, 120)  # Тёмная тень
+        else:  # Тёмный фон
+            text_color = (255, 255, 255, 255)  # Белый
+            accent_color = (255, 100, 100, 255)  # Ярко-красный
+            shadow_color = (0, 0, 0, 150)  # Глубокая тень
+        
         # Создание слоя для рисования
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # --- НАСТРОЙКА ШРИФТОВ ---
-        font_bold = get_font(int(height * 0.08), 'bold')
-        font_medium = get_font(int(height * 0.045), 'bold')
-        font_regular = get_font(int(height * 0.035), 'regular')
+        # --- АДАПТИВНЫЙ РАЗМЕР ШРИФТА ---
+        def get_adaptive_font(base_size, weight='bold'):
+            """Пробуем разные размеры, пока текст не влезет"""
+            for scale in [1.0, 0.85, 0.7, 0.55, 0.4]:
+                size = int(height * base_size * scale)
+                font = get_font(size, weight)
+                return font, size  # Пока просто возвращаем, проверку ниже
+            return get_font(int(height * base_size * 0.4), weight), int(height * base_size * 0.4)
         
         # --- ПОДГОТОВКА ТЕКСТА ---
         main_title = title.upper()
-        max_chars = 20
-        if len(main_title) > max_chars:
-            wrapped_title = textwrap.fill(main_title, width=max_chars)
+        
+        # Умный перенос: сначала пробуем без переноса, потом с переносом
+        max_width = int(width * 0.85)  # Максимальная ширина текста (85% от ширины карточки)
+        
+        # Подбираем размер заголовка
+        title_font_size = int(height * 0.08)
+        title_font = get_font(title_font_size, 'bold')
+        
+        # Проверяем, влезает ли текст
+        bbox = draw.multiline_textbbox((0, 0), main_title, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        
+        # Уменьшаем шрифт, пока не влезет
+        while text_width > max_width and title_font_size > int(height * 0.03):
+            title_font_size -= 2
+            title_font = get_font(title_font_size, 'bold')
+            bbox = draw.multiline_textbbox((0, 0), main_title, font=title_font)
+            text_width = bbox[2] - bbox[0]
+        
+        # Если всё ещё не влезает — переносим по словам
+        if text_width > max_width:
+            words = main_title.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                test_line = current_line + " " + word if current_line else word
+                bbox = draw.textbbox((0, 0), test_line, font=title_font)
+                if bbox[2] - bbox[0] > max_width:
+                    if current_line:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        # Слово слишком длинное, уменьшаем шрифт ещё
+                        while True:
+                            title_font_size -= 2
+                            if title_font_size < int(height * 0.025):
+                                break
+                            title_font = get_font(title_font_size, 'bold')
+                            bbox = draw.textbbox((0, 0), word, font=title_font)
+                            if bbox[2] - bbox[0] <= max_width:
+                                current_line = word
+                                break
+                else:
+                    current_line = test_line
+            if current_line:
+                lines.append(current_line)
+            wrapped_title = "\n".join(lines) if lines else main_title
         else:
             wrapped_title = main_title
         
-        # --- ЗАГОЛОВОК "Премиум" ---
-        header_text = "Премиум"
-        bbox_header = draw.textbbox((0, 0), header_text, font=font_regular)
+        # --- ЗАГОЛОВОК "ПРЕМИУМ" (мелкий текст сверху) ---
+        header_text = "ПРЕМИУМ"
+        header_font_size = max(int(title_font_size * 0.4), int(height * 0.02))
+        header_font = get_font(header_font_size, 'regular')
+        
+        bbox_header = draw.textbbox((0, 0), header_text, font=header_font)
         header_width = bbox_header[2] - bbox_header[0]
         header_x = (width - header_width) // 2
-        header_y = int(height * 0.05)
+        header_y = int(height * 0.04)
         
-        draw.text(
-            (header_x, header_y),
-            header_text,
-            font=font_regular,
-            fill=(220, 60, 60, 255)
-        )
+        # Маленькая линия над заголовком
+        line_width = int(header_width * 1.5)
+        line_x1 = (width - line_width) // 2
+        line_y = header_y - int(height * 0.015)
+        draw.line([(line_x1, line_y), (line_x1 + line_width, line_y)], 
+                  fill=accent_color, width=max(1, int(height * 0.003)))
+        
+        draw.text((header_x, header_y), header_text, font=header_font, fill=accent_color)
         
         # --- ОСНОВНОЙ ЗАГОЛОВОК ---
-        bbox_title = draw.multiline_textbbox((0, 0), wrapped_title, font=font_bold)
+        bbox_title = draw.multiline_textbbox((0, 0), wrapped_title, font=title_font)
         title_width = bbox_title[2] - bbox_title[0]
         title_height = bbox_title[3] - bbox_title[1]
         title_x = (width - title_width) // 2
-        title_y = header_y + int(height * 0.06)
+        title_y = header_y + int(height * 0.05)
+        
+        # Полупрозрачная подложка под заголовок для читаемости
+        padding = int(height * 0.02)
+        overlay_bg = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw_bg = ImageDraw.Draw(overlay_bg)
+        
+        bg_left = max(0, title_x - padding)
+        bg_top = max(0, title_y - padding)
+        bg_right = min(width, title_x + title_width + padding)
+        bg_bottom = min(height, title_y + title_height + padding * 2)
+        
+        # Размытая подложка
+        draw_bg.rounded_rectangle(
+            [bg_left, bg_top, bg_right, bg_bottom],
+            radius=int(height * 0.02),
+            fill=(0, 0, 0, 60) if avg_brightness > 150 else (255, 255, 255, 40)
+        )
         
         # Тень заголовка
-        shadow_offset = max(2, int(height * 0.005))
+        shadow_offset = max(2, int(height * 0.004))
         draw.multiline_text(
             (title_x + shadow_offset, title_y + shadow_offset),
             wrapped_title,
-            font=font_bold,
-            fill=(0, 0, 0, 120),
+            font=title_font,
+            fill=shadow_color,
             align='center',
-            spacing=int(height * 0.01)
+            spacing=int(height * 0.008)
         )
         
-        # Основной заголовок (красный)
+        # Основной заголовок
         draw.multiline_text(
             (title_x, title_y),
             wrapped_title,
-            font=font_bold,
-            fill=(220, 60, 60, 255),
+            font=title_font,
+            fill=text_color,
             align='center',
-            spacing=int(height * 0.01)
+            spacing=int(height * 0.008)
         )
         
         # --- КАПСУЛА С ПРИЗЫВОМ К ДЕЙСТВИЮ ---
-        cta_text = subtitle if subtitle else "🐾 поймай меня, если сможешь"
+        cta_text = subtitle if subtitle else "🔥 ХИТ ПРОДАЖ"
         
-        bbox_cta = draw.textbbox((0, 0), cta_text, font=font_medium)
+        # Подбираем размер шрифта для капсулы
+        cta_font_size = int(height * 0.045)
+        cta_font = get_font(cta_font_size, 'medium')
+        
+        bbox_cta = draw.textbbox((0, 0), cta_text, font=cta_font)
         cta_width = bbox_cta[2] - bbox_cta[0]
+        
+        # Уменьшаем, если не влезает
+        while cta_width > int(width * 0.8) and cta_font_size > int(height * 0.025):
+            cta_font_size -= 2
+            cta_font = get_font(cta_font_size, 'medium')
+            bbox_cta = draw.textbbox((0, 0), cta_text, font=cta_font)
+            cta_width = bbox_cta[2] - bbox_cta[0]
+        
         cta_height = bbox_cta[3] - bbox_cta[1]
         
-        capsule_padding = int(height * 0.03)
-        capsule_x = (width - cta_width - capsule_padding * 2) // 2
-        capsule_y = title_y + title_height + int(height * 0.04)
+        capsule_padding_x = int(height * 0.025)
+        capsule_padding_y = int(height * 0.015)
+        capsule_x = (width - cta_width - capsule_padding_x * 2) // 2
+        capsule_y = title_y + title_height + int(height * 0.05)
         
+        # Капсула с градиентом (имитация)
         draw.rounded_rectangle(
             [capsule_x, capsule_y, 
-             capsule_x + cta_width + capsule_padding * 2, 
-             capsule_y + cta_height + capsule_padding],
-            radius=int(height * 0.03),
-            fill=(220, 60, 60, 255)
+             capsule_x + cta_width + capsule_padding_x * 2, 
+             capsule_y + cta_height + capsule_padding_y * 2],
+            radius=int(height * 0.025),
+            fill=accent_color
         )
         
+        # Небольшая белая обводка капсулы
+        draw.rounded_rectangle(
+            [capsule_x + 1, capsule_y + 1, 
+             capsule_x + cta_width + capsule_padding_x * 2 - 1, 
+             capsule_y + cta_height + capsule_padding_y * 2 - 1],
+            radius=int(height * 0.025),
+            outline=(255, 255, 255, 80),
+            width=1
+        )
+        
+        # Текст в капсуле
         draw.text(
-            (capsule_x + capsule_padding, capsule_y + capsule_padding // 2),
+            (capsule_x + capsule_padding_x, capsule_y + capsule_padding_y),
             cta_text,
-            font=font_medium,
+            font=cta_font,
             fill=(255, 255, 255, 255)
         )
         
         # --- ФИНАЛЬНОЕ ОБЪЕДИНЕНИЕ ---
+        # Сначала подложка, потом основной overlay
+        img = Image.alpha_composite(img, overlay_bg)
         final_img = Image.alpha_composite(img, overlay)
         final_img = final_img.convert('RGB')
         
-        # Легкое повышение резкости
+        # Лёгкое повышение резкости
         final_img = final_img.filter(ImageFilter.SHARPEN)
         
         # Сохранение
