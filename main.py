@@ -180,23 +180,22 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
         
         # --- НАСТРОЙКИ ЦВЕТА ---
         r, g, b = style['text_color']
-        # Более прозрачный фон плашки
+        # Полупрозрачные плашки и шрифты
         plate_fill = (r, g, b, 40)  
         plate_outline = (r, g, b, 20)
+        text_fill = (r, g, b, 180)  # Полупрозрачный текст
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
-        # --- ЗАГОЛОВОК (НАЗВАНИЕ ТОВАРА) ---
+        # --- ЗАГОЛОВОК КАРТОЧКИ (НАЗВАНИЕ ТОВАРА) ---
         if title:
             title_text = title.upper()[:40]
-            title_font = get_font(int(height * 0.035), 'bold')
+            title_font = get_font(int(height * 0.035), 'regular') # Заменил bold на regular
             tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
-            # Заголовок размещается сверху, как и было
-            draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=style['text_color'])
+            draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
         # --- ХАРАКТЕРИСТИКИ (ПЛАШКИ ПО БОКАМ) ---
         if features and len(features) > 0:
-            # Фильтруем пустые или бессмысленные фичи
             valid_features = [f for f in features if f.get('value') and f['value'] != "НЕТ"]
             
             if valid_features:
@@ -208,49 +207,48 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                     bx = margin if i % 2 == 0 else width - margin - badge_w
                     by = start_y + (i // 2) * (badge_h + gap)
                     
-                    # Рисуем плашку
+                    # Рисуем полупрозрачную плашку
                     draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
                     
                     value = feat.get('value', '')
                     label = feat.get('label', '')
-                    
-                    # --- ДИНАМИЧЕСКИЙ ПОДБОР ШРИФТА, ЧТОБЫ ТЕКСТ НЕ ВЫЛЕЗАЛ ---
-                    max_val_width = badge_w - 20
-                    val_font_size = int(height * 0.03)
-                    val_font = get_font(val_font_size, 'bold')
-                    
-                    # Уменьшаем шрифт, пока текст не влезет в плашку
-                    while draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width and val_font_size > 10:
-                        val_font_size -= 1
-                        val_font = get_font(val_font_size, 'bold')
-                    
-                    # Переносим слово, если оно всё ещё слишком длинное
-                    if draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width:
-                        display_value = value[:15] + ".."
-                    else:
-                        display_value = value
 
-                    # Рисуем текст на плашке
-                    draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
+                    # --- ЗАГОЛОВОК ПЛАШКИ (ВВЕРХУ, НЕ ЖИРНЫЙ) ---
+                    if label and label != "НЕТ":
+                        label_font = get_font(int(height * 0.023), 'regular') # Убрал жирность
+                        lw = draw.textbbox((0, 0), label, font=label_font)[2]
+                        # Центрируем заголовок по центру плашки
+                        lx = bx + (badge_w - lw) // 2
+                        draw.text((lx, by + int(height * 0.01)), label, font=label_font, fill=text_fill)
                     
-                    # Лейбл рисуем только если он валидный
-                    if label and label != "НЕТ" and "Особенность" not in label:
-                        label_font = get_font(int(height * 0.02), 'regular')
-                        draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
+                    # --- ХАРАКТЕРИСТИКА (ВНИЗУ, НЕ ЖИРНАЯ) ---
+                    if display_value:
+                        # Динамический подбор шрифта под размер плашки
+                        max_val_width = badge_w - 20
+                        val_font_size = int(height * 0.028) 
+                        val_font = get_font(val_font_size, 'regular') # Убрал жирность
+                        
+                        while draw.textbbox((0, 0), display_value, font=val_font)[2] > max_val_width and val_font_size > 10:
+                            val_font_size -= 1
+                            val_font = get_font(val_font_size, 'regular')
+                        
+                        vw = draw.textbbox((0, 0), display_value, font=val_font)[2]
+                        # Центрируем значение по центру плашки
+                        vx = bx + (badge_w - vw) // 2
+                        draw.text((vx, by + int(height * 0.055)), display_value, font=val_font, fill=text_fill)
         
         # --- БОНУСЫ (НИЖНИЕ ПЛАШКИ) ---
         y_bonus = int(height * 0.68)
         if bonuses and len(bonuses) > 0:
             for bonus in bonuses[:2]:
                 text = bonus[:35]
-                # Фильтруем мусорные бонусы
                 if not text or text == "НЕТ": continue
                     
-                bonus_font = get_font(int(height * 0.03), 'medium')
+                bonus_font = get_font(int(height * 0.03), 'regular')
                 tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
                 bh = int(height * 0.06)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=(r, g, b, 40), outline=(r, g, b, 80), width=1)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['text_color'])
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=text_fill)
                 y_bonus += bh + 10
         
         # --- ТРИГГЕРЫ (ПЛАШКИ С АКЦИЯМИ) ---
@@ -259,11 +257,11 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 text = trigger[:35]
                 if not text or text == "НЕТ": continue
                     
-                trigger_font = get_font(int(height * 0.025), 'medium')
+                trigger_font = get_font(int(height * 0.025), 'regular')
                 tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
                 th = int(height * 0.05)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=(r, g, b, 50), outline=(r, g, b, 100), width=1)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['text_color'])
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=text_fill)
                 y_bonus += th + 8
         
         # --- СБОРКА ---
