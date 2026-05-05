@@ -239,23 +239,24 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
             draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
         if features and len(features) > 0:
-            badge_w = int(width * 0.42)
-            badge_h = int(height * 0.08)
-            start_y = int(height * 0.22)
-            gap = int(height * 0.02)
+            # Каждая характеристика на отдельной плашке по центру
+            badge_w = int(width * 0.8)
+            badge_h = int(height * 0.12)
+            start_y = int(height * 0.25)
+            gap = int(height * 0.03)
             
-            for i, feat in enumerate(features[:4]):
-                bx = margin if i % 2 == 0 else width - margin - badge_w
-                by = start_y + (i // 2) * (badge_h + gap)
+            for i, feat in enumerate(features[:3]):
+                bx = (width - badge_w) // 2
+                by = start_y + i * (badge_h + gap)
                 
                 draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
                 
                 text = feat.get('text', '')
                 if text:
-                    font_size = int(height * 0.025)
+                    font_size = int(height * 0.035)
                     font = get_font(font_size, 'regular')
-                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 20 and font_size > 10:
-                        font_size -= 1
+                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 40 and font_size > 14:
+                        font_size -= 2
                         font = get_font(font_size, 'regular')
                     tw = draw.textbbox((0, 0), text, font=font)[2]
                     tx = bx + (badge_w - tw) // 2
@@ -276,21 +277,18 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
 
 # === GPT-2 МОДУЛЬ ===
 def generate_description_gpt2(product_data, question, answer):
-    prompt = f"Product: {product_data.get('category', 'товар')}. Feature: {question}. Answer: {answer}. Write a short, professional, and attractive product label (1-4 words) for a marketplace card in Russian language:"
+    prompt = f"Product: {product_data.get('category', 'товар')}. Question: {question}. Answer: {answer}. Write a short, professional product characteristic in format 'Label: Value' for a marketplace card in Russian language. Only 3-6 words total:"
     
     try:
         response = hf_client.text_generation(
             model="gpt2-medium",
             prompt=prompt,
-            max_new_tokens=15,
+            max_new_tokens=20,
             temperature=0.7
         )
         generated = response[0]['generated_text'].replace(prompt, '').strip()
         generated = generated.split('\n')[0]
-        words = generated.split()
-        if len(words) > 25:
-            generated = ' '.join(words[:25])
-        return generated[:30]
+        return generated[:40]
     except Exception as e:
         print(f"Ошибка GPT-2: {e}")
         return f"{answer[:25]}"
@@ -315,6 +313,34 @@ def clean_answer(answer, question):
         return None
     
     return ans
+
+# --- СОРИТРОВКА ХАРАКТЕРИСТИК ПО ПРИОРИТЕТУ ---
+def sort_features_by_priority(features):
+    """Сортирует характеристики: товар → гарантия → бонусы/акции"""
+    priority_order = {
+        'материал': 0,
+        'размер': 0,
+        'цвет': 0,
+        'модель': 0,
+        'совместимость': 0,
+        'комплект': 0,
+        'гарантия': 1,
+        'бонус': 2,
+        'подарок': 2,
+        'акция': 2,
+        'скидка': 2,
+        'доставка': 2,
+    }
+    
+    def get_priority(feature):
+        text = feature.get('text', '').lower()
+        for key, priority in priority_order.items():
+            if key in text:
+                return priority
+        return 3  # Всё остальное — в конец
+    
+    features.sort(key=get_priority)
+    return features
 
 # === ОБРАБОТЧИКИ GPT-2 РЕДАКТИРОВАНИЯ ===
 def finish_ai_mode(chat_id, user_id):
@@ -428,22 +454,25 @@ def generate_final_cards(chat_id, user_id):
     
     all_features = [{"text": item['generated'][:40]} for item in gpt2_results]
     
+    # Сортируем по приоритету
+    all_features = sort_features_by_priority(all_features)
+    
     if not all_features:
         bot.send_message(chat_id, "❌ Недостаточно данных для карточек")
         return
     
-    cards = []
+    # 5 ракурсов (фронт, слегка слева, слегка справа, сильнее слева, сильнее справа)
     image_urls = [
         user_data[user_id].get('base_card'),
         user_data[user_id].get('left_card', user_data[user_id].get('base_card')),
         user_data[user_id].get('right_card', user_data[user_id].get('base_card')),
+        user_data[user_id].get('far_left_card', user_data[user_id].get('base_card')),
+        user_data[user_id].get('far_right_card', user_data[user_id].get('base_card')),
     ]
     
-    for i in range(0, len(all_features), 4):
-        chunk = all_features[i:i+4]
-        if not chunk: continue
-        
-        img_url = image_urls[i // 4] if i // 4 < len(image_urls) else image_urls[0]
+    cards = []
+    for i, feature in enumerate(all_features):
+        img_url = image_urls[i % len(image_urls)]
         if not img_url: continue
         
         try:
@@ -451,7 +480,7 @@ def generate_final_cards(chat_id, user_id):
         except:
             continue
         
-        card = add_infographic(img, title, chunk, style_key)
+        card = add_infographic(img, title, [feature], style_key)
         if card:
             cards.append(card)
     
@@ -524,9 +553,11 @@ def progress_analysis(chat_id, msg_id, user_id):
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось обработать фото.", chat_id, msg_id, parse_mode="HTML")
         return
     
-    bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю ракурсы</b> (⏱️ ~20 сек)", chat_id, msg_id, parse_mode="HTML")
+    bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю ракурсы</b> (⏱️ ~30 сек)", chat_id, msg_id, parse_mode="HTML")
     left_card_url = retouch_photo(photo, style_key, "angle slightly from the left side, 3/4 view")
     right_card_url = retouch_photo(photo, style_key, "angle slightly from the right side, 3/4 view")
+    far_left_card_url = retouch_photo(photo, style_key, "angle strongly from the left side, almost side view")
+    far_right_card_url = retouch_photo(photo, style_key, "angle strongly from the right side, almost side view")
     
     bot.edit_message_text("🧠 <b>Анализ: Шаг 3/4 — Изучаю товар</b> (⏱️ ~25 сек)", chat_id, msg_id, parse_mode="HTML")
     analysis = deep_analyze_and_generate_questions(base_card_url)
@@ -537,6 +568,8 @@ def progress_analysis(chat_id, msg_id, user_id):
     user_data[user_id]['base_card'] = base_card_url
     user_data[user_id]['left_card'] = left_card_url
     user_data[user_id]['right_card'] = right_card_url
+    user_data[user_id]['far_left_card'] = far_left_card_url
+    user_data[user_id]['far_right_card'] = far_right_card_url
     user_analysis[user_id] = analysis
     user_analysis[user_id]['answers'] = []
     user_analysis[user_id]['current_q'] = 0
