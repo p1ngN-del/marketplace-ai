@@ -440,6 +440,8 @@ def finish_ai_mode(chat_id, user_id):
     bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
+    # --- !!! НОВОЕ: получаем список вопросов, чтобы сделать из них метки !!! ---
+    questions = analysis.get('questions', [])
     style_key = user_data[user_id]['style']
     title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
 
@@ -447,33 +449,49 @@ def finish_ai_mode(chat_id, user_id):
     bonuses = []
     triggers = []
 
+    # --- ПРЕВРАЩАЕМ ВОПРОСЫ В МЕТКИ ДЛЯ ПЛАШЕК ---
+    def question_to_label(question):
+        """Преобразует вопрос в короткую характеристику на русском"""
+        if not question: return "Характеристика"
+        q = question.lower()
+        if 'материал' in q: return 'Материал'
+        if 'модел' in q or 'совместим' in q or 'устройств' in q: return 'Совместимость'
+        if 'бонус' in q or 'подар' in q or 'бесплат' in q: return 'Бонус'
+        if 'скидк' in q or 'акци' in q or 'промокод' in q: return 'Акция'
+        if 'лучше' in q or 'конкурент' in q or 'преимуществ' in q: return 'Преимущество'
+        if 'гаранти' in q or 'качеств' in q: return 'Гарантия'
+        if 'размер' in q or 'габарит' in q: return 'Размер'
+        if 'цвет' in q: return 'Цвет'
+        # Если вопрос не опознан, берём первые 2-3 слова
+        words = question.split()[:3]
+        return ' '.join(words) if words else 'Характеристика'
+
     for i, ans in enumerate(answers):
         if not ans: continue
-        if i == 0 and len(ans) > 2: features.append({"icon": "🔷", "label": "Материал", "value": ans[:20]})
-        elif i == 1 and len(ans) > 2: features.append({"icon": "✅", "label": "Совместимость", "value": ans[:20]})
-        elif i == 2 and len(ans) > 2: features.append({"icon": "⭐", "label": "Характеристика", "value": ans[:20]})
+        # Берём вопрос, который был задан, чтобы сделать из него метку
+        question = questions[i] if i < len(questions) else ""
+        label = question_to_label(question)
+
+        if i == 0 and len(ans) > 2: features.append({"icon": "🔷", "label": label, "value": ans[:20]})
+        elif i == 1 and len(ans) > 2: features.append({"icon": "✅", "label": label, "value": ans[:20]})
+        elif i == 2 and len(ans) > 2: features.append({"icon": "⭐", "label": label, "value": ans[:20]})
         elif i == 3 and len(ans) > 2: bonuses.append(f"🎁 {ans[:25]}")
         elif i == 4 and len(ans) > 2: triggers.append(f"⏰ {ans[:25]}")
-        elif len(ans) > 2: features.append({"icon": "📦", "label": "Особенность", "value": ans[:20]})
+        elif len(ans) > 2: features.append({"icon": "📦", "label": label, "value": ans[:20]})
 
     if not bonuses: bonuses.append("🚚 Быстрая доставка")
     if not triggers: triggers.append("🔥 Хит продаж")
 
-    # Создаём три разные карточки
+    # --- ГЕНЕРАЦИЯ ТРЁХ КАРТОЧЕК (без изменений) ---
     cards = []
     base_img = Image.open(BytesIO(requests.get(user_data[user_id]['base_card']).content)).convert('RGBA')
     left_img = Image.open(BytesIO(requests.get(user_data[user_id].get('left_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
     right_img = Image.open(BytesIO(requests.get(user_data[user_id].get('right_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
 
-    # Карточка 1: Название и первая характеристика
     card1 = add_infographic(base_img, title, features[:1] if features else None, None, None, style_key)
     if card1: cards.append(card1)
-
-    # Карточка 2: Остальные характеристики
     card2 = add_infographic(left_img, None, features[1:3] if len(features) > 1 else None, None, None, style_key)
     if card2: cards.append(card2)
-
-    # Карточка 3: Бонусы и триггеры
     card3 = add_infographic(right_img, None, features[3:4] if len(features) > 3 else None, bonuses, triggers, style_key)
     if card3: cards.append(card3)
 
