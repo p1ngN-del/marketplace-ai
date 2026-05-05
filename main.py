@@ -89,7 +89,6 @@ bot = telebot.TeleBot(TG_TOKEN)
 hf_client = InferenceClient(token=HF_TOKEN)
 app = Flask(__name__)
 
-# Установка команд меню
 def set_bot_commands():
     commands = [
         telebot.types.BotCommand("start", "Запустить бота"),
@@ -97,13 +96,11 @@ def set_bot_commands():
     ]
     try:
         bot.set_my_commands(commands)
-        print("Команды меню установлены")
     except Exception as e:
         print(f"Не удалось установить команды: {e}")
 
 set_bot_commands()
 
-# Временное хранилище
 user_cards = {}
 user_analysis = {}
 user_states = {}
@@ -115,69 +112,67 @@ BG_STYLES = {
         "prompt": "Clean pure white studio background, professional product photography, soft shadows",
         "brightness": 250,
         "text_color": (30, 30, 30),
-        "accent": (255, 100, 50),
+        "accent": (100, 100, 100),
     },
     "gradient_warm": {
         "name": "🧡 Теплый градиент",
         "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel",
         "brightness": 200,
         "text_color": (60, 40, 20),
-        "accent": (255, 120, 0),
+        "accent": (180, 100, 60),
     },
     "dark_luxury": {
         "name": "🖤 Темная роскошь",
-        "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography, gold accents",
+        "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography",
         "brightness": 50,
         "text_color": (255, 255, 255),
-        "accent": (255, 200, 100),
+        "accent": (180, 180, 180),
     },
     "mint_fresh": {
         "name": "💚 Мятная свежесть",
         "prompt": "Soft mint green background, fresh clean look, organic natural product feel",
         "brightness": 220,
         "text_color": (20, 60, 40),
-        "accent": (0, 150, 100),
+        "accent": (80, 160, 120),
     },
     "sky_blue": {
         "name": "💙 Небесный",
         "prompt": "Soft sky blue gradient background, airy light feel, tech modern product",
         "brightness": 210,
         "text_color": (20, 40, 80),
-        "accent": (0, 100, 200),
+        "accent": (80, 140, 220),
     },
     "rose_gold": {
         "name": "🩷 Розовое золото",
         "prompt": "Rose gold pink background, feminine elegant, soft pink and gold tones",
         "brightness": 200,
         "text_color": (80, 30, 40),
-        "accent": (200, 80, 100),
+        "accent": (200, 100, 120),
     },
     "neon_tech": {
         "name": "💜 Неоновый",
         "prompt": "Dark background with neon purple and blue accents, cyberpunk tech style, glowing edges",
         "brightness": 60,
         "text_color": (255, 255, 255),
-        "accent": (180, 50, 255),
+        "accent": (200, 100, 255),
     },
     "wood_natural": {
         "name": "🤎 Натуральное дерево",
         "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly",
         "brightness": 180,
         "text_color": (60, 40, 20),
-        "accent": (139, 90, 43),
+        "accent": (160, 120, 80),
     },
 }
 
 # --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ---
 
-def retouch_photo(product_bytes, style_key="clean_white"):
-    """Ретушь фото с выбранным стилем фона"""
+def isolate_product(product_bytes):
+    """Вырезает товар и возвращает его на прозрачном фоне"""
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
-        style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
-        
-        prompt = f"Remove all extra objects from photo. Keep only the product. Place it on: {style['prompt']}. Professional studio lighting, high quality."
+        prompt = "Isolate the product on a pure transparent background. Keep only the product itself, no shadows, no extra objects. High quality."
         
         messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
         response = MultiModalConversation.call(
@@ -191,17 +186,17 @@ def retouch_photo(product_bytes, style_key="clean_white"):
         if response.status_code == 200:
             return response.output.choices[0].message.content[0]['image']
     except Exception as e:
-        print(f"Ошибка ретуши: {e}")
+        print(f"Ошибка изоляции: {e}")
         return None
     return None
 
-def create_card(product_url, style_key="clean_white"):
-    """Создание карточки с выбранным стилем"""
+def generate_background(style_key="clean_white"):
+    """Создаёт пустой фон в выбранном стиле"""
     try:
         style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
-        prompt = f"Create premium product card for marketplace. {style['prompt']}. Product centered, perfect lighting. NO TEXT, NO WATERMARK."
+        prompt = f"Empty {style['prompt']}. NO PRODUCT, just the background texture and lighting. High resolution."
         
-        messages = [{"role": "user", "content": [{"image": product_url}, {"text": prompt}]}]
+        messages = [{"role": "user", "content": [{"text": prompt}]}]
         response = MultiModalConversation.call(
             api_key=DASHSCOPE_API_KEY, 
             model="qwen-image-2.0-pro", 
@@ -213,55 +208,15 @@ def create_card(product_url, style_key="clean_white"):
         if response.status_code == 200:
             return response.output.choices[0].message.content[0]['image']
     except Exception as e:
-        print(f"Ошибка создания карточки: {e}")
-        return None
-    return None
-
-def analyze_product(image_url):
-    """Глубокий анализ товара"""
-    try:
-        prompt = """Analyze this product photo. Identify:
-1. Product category and type
-2. 3-5 key features buyers care about
-3. Pain points this product solves
-4. Target audience (age, gender, interests)
-5. Best selling angles for this product
-
-Return ONLY JSON format:
-{"category":"...","product_name":"...","key_features":["..."],"pain_points":["..."],"target_audience":"...","best_accents":["..."],"questions":["Из какого материала товар?","С какими моделями совместим?","Какой бонус вы даете?","Какая акция или скидка?","Чем ваш товар лучше конкурентов?"]}"""
-        
-        messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
-        response = MultiModalConversation.call(
-            api_key=DASHSCOPE_API_KEY,
-            model="qwen-vl-max",
-            messages=messages
-        )
-        
-        if response.status_code == 200:
-            text = response.output.choices[0].message.content[0]['text']
-            import re
-            json_match = re.search(r'\{.*\}', text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-    except Exception as e:
-        print(f"Ошибка анализа: {e}")
+        print(f"Ошибка создания фона: {e}")
         return None
     return None
 
 def get_font(size, weight='regular'):
     fonts = {
-        'bold': [
-            '/app/Montserrat-Bold.ttf',
-            '/app/font_bold.ttf',
-        ],
-        'medium': [
-            '/app/Montserrat-Medium.ttf',
-            '/app/font.ttf',
-        ],
-        'regular': [
-            '/app/Montserrat-Regular.ttf',
-            '/app/font_regular.ttf',
-        ]
+        'bold': ['/app/Montserrat-Bold.ttf', '/app/font_bold.ttf'],
+        'medium': ['/app/Montserrat-Medium.ttf', '/app/font.ttf'],
+        'regular': ['/app/Montserrat-Regular.ttf', '/app/font_regular.ttf']
     }
     
     font_list = fonts.get(weight, fonts['regular'])
@@ -272,68 +227,67 @@ def get_font(size, weight='regular'):
                 font = ImageFont.truetype(font_path, size)
                 test_bbox = font.getbbox("ЙЦУКЕНГШЩЗ")
                 if test_bbox and (test_bbox[2] - test_bbox[0]) > 50:
-                    print(f"✅ Шрифт загружен: {font_path}")
                     return font
-                else:
-                    print(f"⚠️ Шрифт без кириллицы: {font_path}")
-            except Exception as e:
-                print(f"❌ Ошибка шрифта {font_path}: {e}")
+            except:
                 continue
     
-    for fp in ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-               '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
+    for fp in ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
         if os.path.exists(fp):
             return ImageFont.truetype(fp, size)
     
-    print("⚠️ Используется стандартный шрифт")
     return ImageFont.load_default()
 
-def add_infographic(image_url, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
-    """Профессиональная инфографика с полупрозрачными плашками"""
+def compose_card(product_url, bg_url, style_key="clean_white"):
+    """Объединяет товар с фоном"""
     try:
-        if image_url.startswith('http'):
-            response = requests.get(image_url, timeout=30)
-            img = Image.open(BytesIO(response.content))
-        elif image_url.startswith('data:image'):
-            base64_data = image_url.split(',')[1]
-            img_data = base64.b64decode(base64_data)
-            img = Image.open(BytesIO(img_data))
+        if product_url.startswith('http'):
+            product_img = Image.open(BytesIO(requests.get(product_url, timeout=30).content)).convert('RGBA')
         else:
-            img = Image.open(image_url)
-        
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-        
-        width, height = img.size
+            product_img = Image.open(BytesIO(requests.get(product_url).content)).convert('RGBA')
+            
+        if bg_url.startswith('http'):
+            bg_img = Image.open(BytesIO(requests.get(bg_url, timeout=30).content)).convert('RGBA')
+        else:
+            bg_img = Image.open(BytesIO(requests.get(bg_url).content)).convert('RGBA')
+
+        # Масштабируем товар до 70% высоты фона
+        target_height = int(bg_img.height * 0.7)
+        ratio = target_height / product_img.height
+        new_width = int(product_img.width * ratio)
+        product_img = product_img.resize((new_width, target_height), Image.LANCZOS)
+
+        # Размещаем по центру
+        x = (bg_img.width - new_width) // 2
+        y = (bg_img.height - target_height) // 2
+        bg_img.paste(product_img, (x, y), product_img)
+
+        return bg_img
+    except Exception as e:
+        print(f"Ошибка компоновки: {e}")
+        return None
+
+def add_infographic(base_image, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
+    """Создаёт инфографику с полупрозрачными плашками в гамме фона"""
+    try:
         style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
+        width, height = base_image.size
         
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # Полупрозрачные цвета в гамме фона
-        plate_fill = (*style['text_color'][:3], 80)
-        plate_outline = (*style['accent'][:3], 60)
-        
-        def get_fit_font(text, max_width, start_size, weight='bold'):
-            size = start_size
-            while size > 12:
-                font = get_font(size, weight)
-                bbox = draw.textbbox((0, 0), text, font=font)
-                w = bbox[2] - bbox[0]
-                if w <= max_width:
-                    return font, size, w
-                size -= 2
-            return get_font(12, weight), 12, 0
+        # Рассчитываем цвета плашек из гаммы фона
+        r, g, b = style['text_color']
+        plate_fill = (r, g, b, 70) # Полупрозрачный цвет текста
+        plate_outline = (r, g, b, 40)
         
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
-        # Заголовок
+        # Заголовок ПРЕМИУМ
         header_text = "ПРЕМИУМ КАЧЕСТВО"
-        header_font, _, hw = get_fit_font(header_text, width * 0.6, int(height * 0.025), 'regular')
-        hx = (width - hw) // 2
-        hy = int(height * 0.03)
-        draw.text((hx, hy), header_text, font=header_font, fill=style['accent'])
+        header_font = get_font(int(height * 0.025), 'regular')
+        hw = draw.textbbox((0, 0), header_text, font=header_font)[2]
+        draw.text(((width - hw) // 2, int(height * 0.03)), header_text, font=header_font, fill=style['text_color'])
         
         # Характеристики
         if features and len(features) > 0:
@@ -343,14 +297,9 @@ def add_infographic(image_url, title, features=None, bonuses=None, triggers=None
             gap = int(height * 0.02)
             
             for i, feat in enumerate(features[:4]):
-                if i % 2 == 0:
-                    bx = margin
-                else:
-                    bx = width - margin - badge_w
-                
+                bx = margin if i % 2 == 0 else width - margin - badge_w
                 by = start_y + (i // 2) * (badge_h + gap)
                 
-                # Полупрозрачная плашка
                 draw.rounded_rectangle(
                     [bx, by, bx + badge_w, by + badge_h],
                     radius=plate_radius,
@@ -359,86 +308,76 @@ def add_infographic(image_url, title, features=None, bonuses=None, triggers=None
                     width=1
                 )
                 
-                icon = feat.get('icon', '')
-                label = feat.get('label', '')
                 value = feat.get('value', '')
-                
-                icon_font = get_font(int(height * 0.035), 'regular')
-                draw.text((bx + 10, by + 8), icon, font=icon_font, fill=style['accent'])
-                
-                label_font = get_font(int(height * 0.02), 'regular')
-                draw.text((bx + 10, by + int(height * 0.04)), label, 
-                         font=label_font, fill=(*style['text_color'][:3], 200))
-                
+                label = feat.get('label', '')
                 display_value = value[:18] + ".." if len(value) > 18 else value
-                val_font, _, _ = get_fit_font(display_value, badge_w - 20, int(height * 0.03), 'medium')
-                draw.text((bx + 10, by + int(height * 0.06)), display_value, 
-                         font=val_font, fill=style['text_color'])
+                
+                val_font = get_font(int(height * 0.03), 'bold')
+                label_font = get_font(int(height * 0.02), 'regular')
+                
+                draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
+                draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
         
         # Бонусы
         y_bonus = int(height * 0.68)
         if bonuses and len(bonuses) > 0:
             for bonus in bonuses[:2]:
                 text = bonus[:35]
-                bfont, _, bw = get_fit_font(text, width * 0.8, int(height * 0.032), 'medium')
-                bw = min(bw + 30, width - margin * 2)
+                bonus_font = get_font(int(height * 0.03), 'medium')
+                tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
                 bh = int(height * 0.06)
-                bx = (width - bw) // 2
                 
                 draw.rounded_rectangle(
-                    [bx, y_bonus, bx + bw, y_bonus + bh],
+                    [((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)],
                     radius=plate_radius,
-                    fill=(*style['accent'][:3], 40),
-                    outline=(*style['accent'][:3], 100),
+                    fill=(r, g, b, 40),
+                    outline=(r, g, b, 80),
                     width=1
                 )
                 
-                draw.text((bx + 15, y_bonus + 8), text, font=bfont, fill=style['text_color'])
+                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['text_color'])
                 y_bonus += bh + 10
         
         # Триггеры
         if triggers and len(triggers) > 0:
             for trigger in triggers[:2]:
                 text = trigger[:35]
-                tfont, _, tw = get_fit_font(text, width * 0.8, int(height * 0.028), 'medium')
-                tw = min(tw + 30, width - margin * 2)
+                trigger_font = get_font(int(height * 0.025), 'medium')
+                tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
                 th = int(height * 0.05)
-                tx = (width - tw) // 2
-                
-                trigger_fill = (255, 100, 100, 60) if style['brightness'] > 150 else (255, 80, 80, 80)
-                trigger_text = (180, 30, 30) if style['brightness'] > 150 else (255, 120, 120)
                 
                 draw.rounded_rectangle(
-                    [tx, y_bonus, tx + tw, y_bonus + th],
+                    [((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)],
                     radius=plate_radius,
-                    fill=trigger_fill,
-                    outline=(200, 100, 100, 100),
+                    fill=(r, g, b, 50),
+                    outline=(r, g, b, 100),
                     width=1
                 )
                 
-                draw.text((tx + 15, y_bonus + 6), text, font=tfont, fill=trigger_text)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['text_color'])
                 y_bonus += th + 8
         
-        # Главный заголовок
+        # Заголовок
         if title:
             title_text = title.upper()[:40]
-            tfont, tsize, tw = get_fit_font(title_text, width * 0.9, int(height * 0.07), 'bold')
+            title_font = get_font(int(height * 0.07), 'bold')
+            tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
             
             plate_pad = 12
             px = (width - tw) // 2 - plate_pad
             py = int(height * 0.88) - plate_pad
             
             draw.rounded_rectangle(
-                [px, py, px + tw + plate_pad * 2, py + tsize + plate_pad * 2],
+                [px, py, px + tw + plate_pad * 2, py + int(height * 0.07) + plate_pad * 2],
                 radius=plate_radius,
-                fill=(*style['text_color'][:3], 30) if style['brightness'] > 150 else (255, 255, 255, 30),
+                fill=(r, g, b, 40),
             )
             
-            shadow_color = (0, 0, 0, 60) if style['brightness'] > 150 else (0, 0, 0, 100)
-            draw.text((px + plate_pad + 2, py + plate_pad + 2), title_text, font=tfont, fill=shadow_color)
-            draw.text((px + plate_pad, py + plate_pad), title_text, font=tfont, fill=style['text_color'])
+            shadow_color = (0, 0, 0, 60)
+            draw.text((px + plate_pad + 2, py + plate_pad + 2), title_text, font=title_font, fill=shadow_color)
+            draw.text((px + plate_pad, py + plate_pad), title_text, font=title_font, fill=style['text_color'])
         
-        final = Image.alpha_composite(img, overlay)
+        final = Image.alpha_composite(base_image, overlay)
         final = final.convert('RGB')
         
         enhancer = ImageEnhance.Contrast(final)
@@ -575,20 +514,16 @@ def callback_handler(call):
         card_data = user_cards.get(user_id, {})
         style_key = card_data.get('style', 'clean_white')
         
-        retouched = retouch_photo(card_data['photo'], style_key)
-        if not retouched:
+        # Изолируем товар
+        isolated = isolate_product(card_data['photo'])
+        if not isolated:
             bot.edit_message_text("❌ Ошибка обработки", call.message.chat.id, wait_msg.message_id)
             return
         
-        card_url = create_card(retouched, style_key)
-        if not card_url:
-            bot.edit_message_text("❌ Ошибка создания", call.message.chat.id, wait_msg.message_id)
-            return
-        
-        card_data['card_url'] = card_url
+        card_data['isolated'] = isolated
         user_cards[user_id] = card_data
         
-        analysis = analyze_product(card_url)
+        analysis = analyze_product(isolated)
         user_analysis[user_id] = analysis or {
             'questions': [
                 "Из какого материала товар?",
@@ -706,8 +641,19 @@ def finish_ai_mode(chat_id, user_id):
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
     card_data = user_cards.get(user_id, {})
-    card_url = card_data.get('card_url')
+    isolated_url = card_data.get('isolated')
     style_key = card_data.get('style', 'clean_white')
+    
+    # Генерируем фон и собираем карточку
+    bg_url = generate_background(style_key)
+    if not bg_url:
+        bot.send_message(chat_id, "❌ Ошибка создания фона")
+        return
+    
+    base_card = compose_card(isolated_url, bg_url, style_key)
+    if not base_card:
+        bot.send_message(chat_id, "❌ Ошибка сборки карточки")
+        return
     
     features = []
     bonuses = []
@@ -722,16 +668,12 @@ def finish_ai_mode(chat_id, user_id):
             features.append({"icon": "🔷", "label": "Материал", "value": ans[:20]})
             if len(ans) < 20:
                 title = ans.upper()
-        
         elif i == 1 and len(ans) > 2:
             features.append({"icon": "✅", "label": "Совместимость", "value": ans[:20]})
-        
         elif i == 2 and len(ans) > 2:
             bonuses.append(f"🎁 {ans[:25]}")
-        
         elif i == 3 and len(ans) > 2:
             triggers.append(f"⏰ {ans[:25]}")
-        
         elif i == 4 and len(ans) > 2:
             if len(ans) < 15:
                 title = ans.upper()
@@ -745,57 +687,97 @@ def finish_ai_mode(chat_id, user_id):
     if not triggers:
         triggers.append("🔥 Хит продаж")
     
-    if card_url:
-        final = add_infographic(card_url, title, features, bonuses, triggers, style_key)
-        if final:
-            bot.send_photo(chat_id, final, caption="✅ <b>Инфографика готова!</b>", parse_mode="HTML")
-        else:
-            bot.send_message(chat_id, "❌ Ошибка генерации")
+    # Генерируем 3 варианта карточек
+    cards = []
+    
+    # Карточка 1: Название
+    card1 = add_infographic(base_card.copy(), title, features[:2], None, None, style_key)
+    if card1:
+        cards.append(card1)
+    
+    # Карточка 2: Характеристики
+    card2 = add_infographic(base_card.copy(), None, features, None, None, style_key)
+    if card2:
+        cards.append(card2)
+    
+    # Карточка 3: Бонусы и триггеры
+    card3 = add_infographic(base_card.copy(), None, None, bonuses, triggers, style_key)
+    if card3:
+        cards.append(card3)
+    
+    if cards:
+        for i, card in enumerate(cards):
+            bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/3")
     else:
-        bot.send_message(chat_id, "❌ Карточка не найдена")
+        bot.send_message(chat_id, "❌ Ошибка генерации")
 
 # === КОНСТРУКТОР ===
 
 def generate_auto(chat_id, user_id):
     card_data = user_cards.get(user_id, {})
     style_key = card_data.get('style', 'clean_white')
-    card_url = card_data.get('card_url')
+    isolated_url = card_data.get('isolated')
     
-    if not card_url:
-        retouched = retouch_photo(card_data.get('photo'), style_key)
-        if retouched:
-            card_url = create_card(retouched, style_key)
-            user_cards[user_id]['card_url'] = card_url
+    if not isolated_url:
+        isolated_url = isolate_product(card_data.get('photo'))
+        if not isolated_url:
+            bot.send_message(chat_id, "❌ Ошибка обработки фото")
+            return
+        card_data['isolated'] = isolated_url
+        user_cards[user_id] = card_data
     
-    if card_url:
-        features = [
-            {"icon": "⭐", "label": "Качество", "value": "Премиум"},
-            {"icon": "🚚", "label": "Доставка", "value": "Бесплатно"}
-        ]
-        bonuses = ["🎁 Подарок при заказе"]
-        triggers = ["🔥 Хит продаж"]
-        
-        final = add_infographic(card_url, "ПРЕМИУМ ТОВАР", features, bonuses, triggers, style_key)
-        if final:
-            bot.send_photo(chat_id, final, caption="✅ <b>Инфографика готова!</b>", parse_mode="HTML")
-        else:
-            bot.send_message(chat_id, "❌ Ошибка генерации")
+    bg_url = generate_background(style_key)
+    if not bg_url:
+        bot.send_message(chat_id, "❌ Ошибка создания фона")
+        return
+    
+    base_card = compose_card(isolated_url, bg_url, style_key)
+    if not base_card:
+        bot.send_message(chat_id, "❌ Ошибка сборки карточки")
+        return
+    
+    features = [
+        {"icon": "⭐", "label": "Качество", "value": "Премиум"},
+        {"icon": "🚚", "label": "Доставка", "value": "Бесплатно"}
+    ]
+    bonuses = ["🎁 Подарок при заказе"]
+    triggers = ["🔥 Хит продаж"]
+    
+    cards = []
+    
+    card1 = add_infographic(base_card.copy(), "ПРЕМИУМ ТОВАР", features[:2], None, None, style_key)
+    if card1:
+        cards.append(card1)
+    
+    card2 = add_infographic(base_card.copy(), None, features, None, None, style_key)
+    if card2:
+        cards.append(card2)
+    
+    card3 = add_infographic(base_card.copy(), None, None, bonuses, triggers, style_key)
+    if card3:
+        cards.append(card3)
+    
+    if cards:
+        for i, card in enumerate(cards):
+            bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/3")
     else:
-        bot.send_message(chat_id, "❌ Карточка не найдена")
+        bot.send_message(chat_id, "❌ Ошибка генерации")
 
 def start_constructor(chat_id, user_id):
     card_data = user_cards.get(user_id, {})
     style_key = card_data.get('style', 'clean_white')
     
-    wait_msg = bot.send_message(chat_id, "⏳ Создаём базовую карточку...")
-    
-    retouched = retouch_photo(card_data['photo'], style_key)
-    if retouched:
-        card_url = create_card(retouched, style_key)
-        card_data['card_url'] = card_url
+    # Изолируем товар, если ещё не
+    isolated_url = card_data.get('isolated')
+    if not isolated_url:
+        wait_msg = bot.send_message(chat_id, "⏳ Обрабатываем фото...")
+        isolated_url = isolate_product(card_data.get('photo'))
+        if not isolated_url:
+            bot.edit_message_text("❌ Ошибка обработки", chat_id, wait_msg.message_id)
+            return
+        card_data['isolated'] = isolated_url
         user_cards[user_id] = card_data
-    
-    bot.delete_message(chat_id, wait_msg.message_id)
+        bot.delete_message(chat_id, wait_msg.message_id)
     
     markup = telebot.types.InlineKeyboardMarkup(row_width=1)
     markup.add(
