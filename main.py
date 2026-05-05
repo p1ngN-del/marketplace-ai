@@ -226,24 +226,23 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
         draw = ImageDraw.Draw(overlay)
         
         r, g, b = style['text_color']
-        plate_fill = (r, g, b, 15)
-        plate_outline = (r, g, b, 10)
-        text_fill = (r, g, b, 220)
+        plate_fill = (r, g, b, 8)  # Минимальная прозрачность
+        plate_outline = (r, g, b, 5)  # Почти невидимая обводка
+        text_fill = (r, g, b, 240)
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
         if title:
             title_text = title.upper()[:40]
-            title_font = get_font(int(height * 0.04), 'regular')
+            title_font = get_font(int(height * 0.06), 'bold')  # Массивный заголовок
             tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
             draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
         if features and len(features) > 0:
-            # Каждая характеристика на отдельной плашке по центру
-            badge_w = int(width * 0.8)
-            badge_h = int(height * 0.12)
-            start_y = int(height * 0.25)
-            gap = int(height * 0.03)
+            badge_w = int(width * 0.85)
+            badge_h = int(height * 0.14)
+            start_y = int(height * 0.28)
+            gap = int(height * 0.04)
             
             for i, feat in enumerate(features[:3]):
                 bx = (width - badge_w) // 2
@@ -253,9 +252,9 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
                 
                 text = feat.get('text', '')
                 if text:
-                    font_size = int(height * 0.035)
+                    font_size = int(height * 0.04)
                     font = get_font(font_size, 'regular')
-                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 40 and font_size > 14:
+                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 40 and font_size > 16:
                         font_size -= 2
                         font = get_font(font_size, 'regular')
                     tw = draw.textbbox((0, 0), text, font=font)[2]
@@ -277,7 +276,7 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
 
 # === GPT-2 МОДУЛЬ ===
 def generate_description_gpt2(product_data, question, answer):
-    prompt = f"Product: {product_data.get('category', 'товар')}. Question: {question}. Answer: {answer}. Write a short, professional product characteristic in format 'Label: Value' for a marketplace card in Russian language. Only 3-6 words total:"
+    prompt = f"Product: {product_data.get('category', 'товар')}. Seller question: '{question}'. Seller answer: '{answer}'. Create a short product feature in Russian (3-6 words) in format 'Label: Value'. Examples: 'Материал: Натуральная кожа', 'Совместимость: Все модели Ray-Ban', 'Комплектация: Салфетка в подарок'. Your response:"
     
     try:
         response = hf_client.text_generation(
@@ -288,6 +287,7 @@ def generate_description_gpt2(product_data, question, answer):
         )
         generated = response[0]['generated_text'].replace(prompt, '').strip()
         generated = generated.split('\n')[0]
+        generated = generated.replace('"', '').replace("'", "").strip()
         return generated[:40]
     except Exception as e:
         print(f"Ошибка GPT-2: {e}")
@@ -314,22 +314,11 @@ def clean_answer(answer, question):
     
     return ans
 
-# --- СОРИТРОВКА ХАРАКТЕРИСТИК ПО ПРИОРИТЕТУ ---
 def sort_features_by_priority(features):
-    """Сортирует характеристики: товар → гарантия → бонусы/акции"""
     priority_order = {
-        'материал': 0,
-        'размер': 0,
-        'цвет': 0,
-        'модель': 0,
-        'совместимость': 0,
-        'комплект': 0,
-        'гарантия': 1,
-        'бонус': 2,
-        'подарок': 2,
-        'акция': 2,
-        'скидка': 2,
-        'доставка': 2,
+        'материал': 0, 'размер': 0, 'цвет': 0, 'модель': 0,
+        'совместимость': 0, 'комплект': 0, 'гарантия': 1,
+        'бонус': 2, 'подарок': 2, 'акция': 2, 'скидка': 2, 'доставка': 2,
     }
     
     def get_priority(feature):
@@ -337,7 +326,7 @@ def sort_features_by_priority(features):
         for key, priority in priority_order.items():
             if key in text:
                 return priority
-        return 3  # Всё остальное — в конец
+        return 3
     
     features.sort(key=get_priority)
     return features
@@ -349,7 +338,7 @@ def finish_ai_mode(chat_id, user_id):
 
 def process_title_step(message, chat_id, user_id):
     title = message.text.strip().upper()[:40] if message.text.strip() else "ТОВАР"
-    bot.send_message(chat_id, "🧠 Генерирую текст через GPT-2...")
+    bot.send_message(chat_id, "🧠 Обрабатываю ваши ответы...")
     generate_gpt2_texts(chat_id, user_id, title)
 
 def generate_gpt2_texts(chat_id, user_id, title):
@@ -402,7 +391,7 @@ def show_gpt2_result(chat_id, user_id, index):
     
     item = gpt2_results[index]
     
-    text = f"📝 <b>Вопрос:</b> {item['question']}\n💬 <b>Ваш ответ:</b> {item['answer']}\n✨ <b>GPT-2 предлагает:</b> {item['generated']}\n\nОставить или изменить?"
+    text = f"📝 <b>Вопрос:</b> {item['question']}\n💬 <b>Ваш ответ:</b> {item['answer']}\n✨ <b>Предлагаемый текст:</b> {item['generated']}\n\nОставить или изменить?"
     
     markup = telebot.types.InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -453,15 +442,12 @@ def generate_final_cards(chat_id, user_id):
     style_key = user_data[user_id]['style']
     
     all_features = [{"text": item['generated'][:40]} for item in gpt2_results]
-    
-    # Сортируем по приоритету
     all_features = sort_features_by_priority(all_features)
     
     if not all_features:
         bot.send_message(chat_id, "❌ Недостаточно данных для карточек")
         return
     
-    # 5 ракурсов (фронт, слегка слева, слегка справа, сильнее слева, сильнее справа)
     image_urls = [
         user_data[user_id].get('base_card'),
         user_data[user_id].get('left_card', user_data[user_id].get('base_card')),
@@ -529,7 +515,7 @@ def callback_handler(call):
         bot.answer_callback_query(call.id, "✅ Стиль выбран")
         markup = telebot.types.InlineKeyboardMarkup(row_width=1)
         markup.add(
-            telebot.types.InlineKeyboardButton("🤖 AI Вопросы", callback_data="mode_ai"),
+            telebot.types.InlineKeyboardButton("🤖 Вопросы", callback_data="mode_ai"),
             telebot.types.InlineKeyboardButton("✨ Авто-генерация", callback_data="mode_auto"),
             telebot.types.InlineKeyboardButton("🛠️ Конструктор", callback_data="mode_manual")
         )
