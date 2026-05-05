@@ -462,6 +462,15 @@ def finish_ai_mode(chat_id, user_id):
         bot.send_message(chat_id, "❌ Ошибка при создании карточек.")
 
 # === ЗАПУСК ===
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return '', 403
+    
 if __name__ == '__main__':
     railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if railway_url:
