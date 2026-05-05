@@ -487,64 +487,145 @@ def finish_ai_mode(chat_id, user_id):
     bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
-    # --- !!! НОВОЕ: получаем список вопросов, чтобы сделать из них метки !!! ---
     questions = analysis.get('questions', [])
     style_key = user_data[user_id]['style']
-    title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
+    
+    # --- ЗАГОЛОВОК КАРТОЧКИ ---
+    # Используем самый первый ответ как заголовок, если он короткий
+    title = "ПРЕМИУМ ТОВАР"
+    if answers and len(answers[0]) > 2 and len(answers[0]) < 40:
+        title = answers[0].upper()
+    elif analysis.get('product_name'):
+        title = analysis['product_name'].upper()
 
-    features = []
-    bonuses = []
-    triggers = []
-
-    # --- ПРЕВРАЩАЕМ ВОПРОСЫ В МЕТКИ ДЛЯ ПЛАШЕК ---
-    def question_to_label(question):
-        """Преобразует вопрос в короткую характеристику на русском"""
-        if not question: return "Характеристика"
-        q = question.lower()
-        if 'материал' in q: return 'Материал'
-        if 'модел' in q or 'совместим' in q or 'устройств' in q: return 'Совместимость'
-        if 'бонус' in q or 'подар' in q or 'бесплат' in q: return 'Бонус'
-        if 'скидк' in q or 'акци' in q or 'промокод' in q: return 'Акция'
-        if 'лучше' in q or 'конкурент' in q or 'преимуществ' in q: return 'Преимущество'
-        if 'гаранти' in q or 'качеств' in q: return 'Гарантия'
-        if 'размер' in q or 'габарит' in q: return 'Размер'
-        if 'цвет' in q: return 'Цвет'
-        # Если вопрос не опознан, берём первые 2-3 слова
-        words = question.split()[:3]
-        return ' '.join(words) if words else 'Характеристика'
-
+    # --- ГЕНЕРИРУЕМ ПЛАШКИ ДЛЯ ВСЕХ ОТВЕТОВ ---
+    all_features = []
     for i, ans in enumerate(answers):
-        if not ans: continue
-        # Берём вопрос, который был задан, чтобы сделать из него метку
+        if not ans or ans == "НЕТ": continue
+        
         question = questions[i] if i < len(questions) else ""
+        
+        # Превращаем вопрос в короткий и понятный заголовок
         label = question_to_label(question)
+        
+        # Очищаем ответ — убираем "Да, " и красиво форматируем
+        clean_value = clean_answer(ans, question)
+        
+        all_features.append({
+            "icon": get_icon_for_label(label),
+            "label": label,
+            "value": clean_value[:25]
+        })
 
-        if i == 0 and len(ans) > 2: features.append({"icon": "🔷", "label": label, "value": ans[:20]})
-        elif i == 1 and len(ans) > 2: features.append({"icon": "✅", "label": label, "value": ans[:20]})
-        elif i == 2 and len(ans) > 2: features.append({"icon": "⭐", "label": label, "value": ans[:20]})
-        elif i == 3 and len(ans) > 2: bonuses.append(f"🎁 {ans[:25]}")
-        elif i == 4 and len(ans) > 2: triggers.append(f"⏰ {ans[:25]}")
-        elif len(ans) > 2: features.append({"icon": "📦", "label": label, "value": ans[:20]})
+    # Если данных нет, добавляем дефолтные (но лучше так не делать)
+    if not all_features:
+        all_features.append({"icon": "📦", "label": "Товар", "value": "Премиум"})
 
-    if not bonuses: bonuses.append("🚚 Быстрая доставка")
-    if not triggers: triggers.append("🔥 Хит продаж")
-
-    # --- ГЕНЕРАЦИЯ ТРЁХ КАРТОЧЕК (без изменений) ---
+    # --- РАСПРЕДЕЛЯЕМ ПЛАШКИ ПО КАРТОЧКАМ (до 3 плашек на карточку) ---
     cards = []
-    base_img = Image.open(BytesIO(requests.get(user_data[user_id]['base_card']).content)).convert('RGBA')
-    left_img = Image.open(BytesIO(requests.get(user_data[user_id].get('left_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
-    right_img = Image.open(BytesIO(requests.get(user_data[user_id].get('right_card', user_data[user_id]['base_card'])).content)).convert('RGBA')
-
-    card1 = add_infographic(base_img, title, features[:1] if features else None, None, None, style_key)
-    if card1: cards.append(card1)
-    card2 = add_infographic(left_img, None, features[1:3] if len(features) > 1 else None, None, None, style_key)
-    if card2: cards.append(card2)
-    card3 = add_infographic(right_img, None, features[3:4] if len(features) > 3 else None, bonuses, triggers, style_key)
-    if card3: cards.append(card3)
+    # Получаем до 3 разных изображений (фронт, лево, право)
+    image_urls = [
+        user_data[user_id].get('base_card'),
+        user_data[user_id].get('left_card', user_data[user_id].get('base_card')),
+        user_data[user_id].get('right_card', user_data[user_id].get('base_card')),
+        # Если карточек меньше 3, ИИ может создать ещё
+        user_data[user_id].get('base_card'), 
+        user_data[user_id].get('base_card'), 
+        user_data[user_id].get('base_card') 
+    ]
+    
+    for i in range(0, len(all_features), 3):
+        chunk = all_features[i:i+3]
+        if not chunk: continue
+        
+        img_url = image_urls[i // 3] if i // 3 < len(image_urls) else image_urls[0]
+        if not img_url: continue
+        
+        try:
+            img = Image.open(BytesIO(requests.get(img_url).content)).convert('RGBA')
+        except:
+            continue
+        
+        # Для первой карточки добавляем заголовок, для остальных — нет
+        card_title = title if i == 0 else None
+        
+        card = add_infographic(img, card_title, chunk[:3], None, None, style_key)
+        if card:
+            cards.append(card)
 
     if cards:
         for i, card in enumerate(cards):
-            bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/3")
+            bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/{len(cards)}")
+    else:
+        bot.send_message(chat_id, "❌ Ошибка при создании карточек.")
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ДОБАВЬ ИХ ПЕРЕД finish_ai_mode) ---
+
+def question_to_label(question):
+    """Превращает вопрос в короткий заголовок плашки (строго на русском)"""
+    if not question: return "Характеристика"
+    q = question.lower()
+    if 'материал' in q: return 'Материал'
+    if 'модель' in q or 'совместим' in q: return 'Совместимость'
+    if 'длина' in q or 'размер' in q: return 'Размер'
+    if 'цвет' in q: return 'Цвет'
+    if 'бонус' in q or 'подарок' in q: return 'Бонус'
+    if 'скидк' in q or 'акци' in q: return 'Акция'
+    if 'лучше' in q or 'преимуществ' in q: return 'Преимущество'
+    if 'гаранти' in q: return 'Гарантия'
+    # Fallback: первые 3 слова вопроса
+    words = question.split()[:3]
+    return ' '.join(words)
+
+def clean_answer(answer, question):
+    """Красиво форматирует ответ, убирая 'Да, ' и т.д."""
+    ans = answer.strip()
+    q = question.lower()
+    if 'акци' in q or 'скидк' in q:
+        # Превращаем "Да, 10%" в "Скидка 10%"
+        if ans.lower().startswith('да'):
+            return ans.replace('Да,', 'Скидка').replace('да,', 'Скидка')
+    return ans
+
+def get_icon_for_label(label):
+    if 'Материал' in label: return '🔷'
+    if 'Совместимость' in label: return '✅'
+    if 'Размер' in label: return '📏'
+    if 'Цвет' in label: return '🎨'
+    if 'Бонус' in label: return '🎁'
+    if 'Акция' in label: return '⏰'
+    if 'Преимущество' in label: return '⭐'
+    if 'Гарантия' in label: return '🛡️'
+    return '📦'
+
+
+def generate_auto(chat_id, user_id):
+    """Авто-генерация карточек без вопросов"""
+    bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
+    analysis = user_analysis.get(user_id, {})
+    style_key = user_data[user_id]['style']
+    
+    title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
+    
+    # Генерируем стандартные плашки
+    features = [
+        {"icon": "🛡️", "label": "Гарантия", "value": "12 месяцев"},
+        {"icon": "🚚", "label": "Доставка", "value": "Бесплатно"},
+        {"icon": "⭐", "label": "Качество", "value": "Премиум"},
+    ]
+    
+    cards = []
+    image_url = user_data[user_id].get('base_card')
+    if image_url:
+        try:
+            img = Image.open(BytesIO(requests.get(image_url).content)).convert('RGBA')
+            card = add_infographic(img, title, features, None, None, style_key)
+            if card: cards.append(card)
+        except: pass
+    
+    if cards:
+        for i, card in enumerate(cards):
+            bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/{len(cards)}")
     else:
         bot.send_message(chat_id, "❌ Ошибка при создании карточек.")
 
