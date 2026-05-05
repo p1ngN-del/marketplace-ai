@@ -276,7 +276,18 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
 
 # === GPT-2 МОДУЛЬ ===
 def generate_description_gpt2(product_data, question, answer):
-    prompt = f"Product: {product_data.get('category', 'товар')}. Seller question: '{question}'. Seller answer: '{answer}'. Create a short product feature in Russian (3-6 words) in format 'Label: Value'. Examples: 'Материал: Натуральная кожа', 'Совместимость: Все модели Ray-Ban', 'Комплектация: Салфетка в подарок'. Your response:"
+    """
+    GPT-2 видит только вопрос и ОРИГИНАЛЬНЫЙ, СМЫСЛОВОЙ ответ пользователя.
+    Он НЕ видит очищенный «Да» или «Совместимо».
+    """
+    # prompt строго требует готовую фразу "Label: Value"
+    prompt = (
+        f"Товар: {product_data.get('category', 'товар')}.\n"
+        f"Продавец на вопрос: '{question}' ответил: '{answer}'.\n"
+        f"Сформулируй КОРОТКУЮ характеристику товара (3-6 слов) на русском языке в формате 'Свойство: Значение'.\n"
+        f"Примеры: 'Материал: Натуральная кожа', 'Совместимость: Все модели Ray-Ban', 'Защита: От влаги и УФ', 'Гарантия: 5 лет'.\n"
+        f"Характеристика:"
+    )
     
     try:
         response = hf_client.text_generation(
@@ -286,12 +297,42 @@ def generate_description_gpt2(product_data, question, answer):
             temperature=0.7
         )
         generated = response[0]['generated_text'].replace(prompt, '').strip()
-        generated = generated.split('\n')[0]
-        generated = generated.replace('"', '').replace("'", "").strip()
+        generated = generated.split('\n')[0].replace('"', '').replace("'", "").strip()
+        
+        # Фолбэк: если GPT-2 вернул что-то не то, собираем руками из вопроса
+        if len(generated.split()) <= 2 or ':' not in generated:
+            q = question.lower()
+            if 'материал' in q: label = 'Материал'
+            elif 'совместим' in q or 'подходит' in q or 'модел' in q: label = 'Совместимость'
+            elif 'гаранти' in q: label = 'Гарантия'
+            elif 'защит' in q or 'влаги' in q or 'ультрафиол' in q: label = 'Защита'
+            elif 'бонус' in q or 'подар' in q: label = 'Бонус'
+            elif 'акци' in q or 'скидк' in q: label = 'Акция'
+            else: label = 'Характеристика'
+            generated = f"{label}: {answer}"
+            
         return generated[:40]
     except Exception as e:
         print(f"Ошибка GPT-2: {e}")
         return f"{answer[:25]}"
+
+def clean_answer(answer, question):
+    """
+    Фильтрует только ОТРИЦАТЕЛЬНЫЕ ответы.
+    ВАЖНО: НЕ заменяет "Да" на "Совместимо" и не обрезает "Да, 10%".
+    В GPT-2 отдается ИСХОДНЫЙ ответ.
+    """
+    ans = answer.strip()
+    q = question.lower()
+    
+    # удаляем только явно отрицательные ответы
+    if ans.lower() in ["нет", "no", "нету", "отсутствует", "бонусов нет"]:
+        return None
+    if 'нет' in ans.lower() and len(ans) < 10:
+        return None
+    
+    # В GPT-2 теперь пойдет сам answer, а не ans
+    return answer.strip()
 
 def clean_answer(answer, question):
     ans = answer.strip()
