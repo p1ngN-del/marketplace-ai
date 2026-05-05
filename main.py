@@ -171,48 +171,81 @@ def get_font(size, weight='regular'):
 
 # --- ИНФОГРАФИКА ---
 def add_infographic(base_image, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
-    """Накладывает текст на готовую карточку. Дизайн адаптируется под фон."""
+    """Накладывает стильный, читаемый текст на готовую карточку."""
     try:
         style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
         width, height = base_image.size
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
+        # --- НАСТРОЙКИ ЦВЕТА ---
         r, g, b = style['text_color']
-        plate_fill = (r, g, b, 70)
-        plate_outline = (r, g, b, 40)
+        # Более прозрачный фон плашки
+        plate_fill = (r, g, b, 40)  
+        plate_outline = (r, g, b, 20)
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
-        # Заголовок ПРЕМИУМ
-        header_text = "ПРЕМИУМ КАЧЕСТВО"
-        header_font = get_font(int(height * 0.025), 'regular')
-        hw = draw.textbbox((0, 0), header_text, font=header_font)[2]
-        draw.text(((width - hw) // 2, int(height * 0.03)), header_text, font=header_font, fill=style['text_color'])
+        # --- ЗАГОЛОВОК (НАЗВАНИЕ ТОВАРА) ---
+        if title:
+            title_text = title.upper()[:40]
+            title_font = get_font(int(height * 0.035), 'bold')
+            tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
+            # Заголовок размещается сверху, как и было
+            draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=style['text_color'])
         
-        # Характеристики
+        # --- ХАРАКТЕРИСТИКИ (ПЛАШКИ ПО БОКАМ) ---
         if features and len(features) > 0:
-            badge_w = int(width * 0.38)
-            badge_h = int(height * 0.10)
-            start_y = int(height * 0.22)
-            gap = int(height * 0.02)
-            for i, feat in enumerate(features[:4]):
-                bx = margin if i % 2 == 0 else width - margin - badge_w
-                by = start_y + (i // 2) * (badge_h + gap)
-                draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
-                value = feat.get('value', '')
-                label = feat.get('label', '')
-                display_value = value[:18] + ".." if len(value) > 18 else value
-                val_font = get_font(int(height * 0.03), 'bold')
-                label_font = get_font(int(height * 0.02), 'regular')
-                draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
-                draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
+            # Фильтруем пустые или бессмысленные фичи
+            valid_features = [f for f in features if f.get('value') and f['value'] != "НЕТ"]
+            
+            if valid_features:
+                badge_w = int(width * 0.38)
+                badge_h = int(height * 0.10)
+                start_y = int(height * 0.22)
+                gap = int(height * 0.02)
+                for i, feat in enumerate(valid_features[:4]):
+                    bx = margin if i % 2 == 0 else width - margin - badge_w
+                    by = start_y + (i // 2) * (badge_h + gap)
+                    
+                    # Рисуем плашку
+                    draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
+                    
+                    value = feat.get('value', '')
+                    label = feat.get('label', '')
+                    
+                    # --- ДИНАМИЧЕСКИЙ ПОДБОР ШРИФТА, ЧТОБЫ ТЕКСТ НЕ ВЫЛЕЗАЛ ---
+                    max_val_width = badge_w - 20
+                    val_font_size = int(height * 0.03)
+                    val_font = get_font(val_font_size, 'bold')
+                    
+                    # Уменьшаем шрифт, пока текст не влезет в плашку
+                    while draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width and val_font_size > 10:
+                        val_font_size -= 1
+                        val_font = get_font(val_font_size, 'bold')
+                    
+                    # Переносим слово, если оно всё ещё слишком длинное
+                    if draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width:
+                        display_value = value[:15] + ".."
+                    else:
+                        display_value = value
+
+                    # Рисуем текст на плашке
+                    draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
+                    
+                    # Лейбл рисуем только если он валидный
+                    if label and label != "НЕТ" and "Особенность" not in label:
+                        label_font = get_font(int(height * 0.02), 'regular')
+                        draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
         
-        # Бонусы
+        # --- БОНУСЫ (НИЖНИЕ ПЛАШКИ) ---
         y_bonus = int(height * 0.68)
         if bonuses and len(bonuses) > 0:
             for bonus in bonuses[:2]:
                 text = bonus[:35]
+                # Фильтруем мусорные бонусы
+                if not text or text == "НЕТ": continue
+                    
                 bonus_font = get_font(int(height * 0.03), 'medium')
                 tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
                 bh = int(height * 0.06)
@@ -220,10 +253,12 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['text_color'])
                 y_bonus += bh + 10
         
-        # Триггеры
+        # --- ТРИГГЕРЫ (ПЛАШКИ С АКЦИЯМИ) ---
         if triggers and len(triggers) > 0:
             for trigger in triggers[:2]:
                 text = trigger[:35]
+                if not text or text == "НЕТ": continue
+                    
                 trigger_font = get_font(int(height * 0.025), 'medium')
                 tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
                 th = int(height * 0.05)
@@ -231,19 +266,7 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
                 draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['text_color'])
                 y_bonus += th + 8
         
-        # Заголовок
-        if title:
-            title_text = title.upper()[:40]
-            title_font = get_font(int(height * 0.07), 'bold')
-            tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
-            plate_pad = 12
-            px = (width - tw) // 2 - plate_pad
-            py = int(height * 0.88) - plate_pad
-            draw.rounded_rectangle([px, py, px + tw + plate_pad * 2, py + int(height * 0.07) + plate_pad * 2], radius=plate_radius, fill=(r, g, b, 40))
-            shadow_color = (0, 0, 0, 60)
-            draw.text((px + plate_pad + 2, py + plate_pad + 2), title_text, font=title_font, fill=shadow_color)
-            draw.text((px + plate_pad, py + plate_pad), title_text, font=title_font, fill=style['text_color'])
-        
+        # --- СБОРКА ---
         final = Image.alpha_composite(base_image, overlay)
         final = final.convert('RGB')
         enhancer = ImageEnhance.Contrast(final)
