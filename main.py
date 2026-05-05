@@ -112,9 +112,9 @@ BG_STYLES = {
     "clean_white": {
         "name": "🤍 Чистый белый",
         "prompt": "Clean pure white studio background, professional product photography, soft shadows",
-        "bg_color": (248, 248, 248), # Мягкий белый
-        "text_color": (50, 50, 50),   # Тёмно-серый текст (контраст > 7:1)
-        "accent_color": (0, 120, 200), # Акцентный синий
+        "bg_color": (248, 248, 248),
+        "text_color": (50, 50, 50),
+        "accent_color": (0, 120, 200),
     },
     "gradient_warm": {
         "name": "🧡 Теплый градиент",
@@ -126,9 +126,9 @@ BG_STYLES = {
     "dark_luxury": {
         "name": "🖤 Темная роскошь",
         "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography",
-        "bg_color": (34, 34, 38),    # Мягкий чёрный
-        "text_color": (240, 240, 245), # Светло-серый текст
-        "accent_color": (255, 215, 0), # Золотой акцент
+        "bg_color": (34, 34, 38),
+        "text_color": (240, 240, 245),
+        "accent_color": (255, 215, 0),
     },
     "mint_fresh": {
         "name": "💚 Мятная свежесть",
@@ -198,9 +198,9 @@ def retouch_photo(product_bytes, style_key="clean_white", angle_hint=""):
 # --- ШРИФТЫ ---
 def get_font(size, weight='regular'):
     fonts = {
-        'bold': ['/app/Montserrat-Bold.ttf', '/app/font_bold.ttf'],
-        'medium': ['/app/Montserrat-Medium.ttf', '/app/font.ttf'],
-        'regular': ['/app/Montserrat-Regular.ttf', '/app/font_regular.ttf']
+        'bold': ['/app/Montserrat-Bold.ttf', '/app/Montserrat-Black.ttf'],
+        'medium': ['/app/Montserrat-Medium.ttf'],
+        'regular': ['/app/Montserrat-Regular.ttf']
     }
     font_list = fonts.get(weight, fonts['regular'])
     for font_path in font_list:
@@ -217,7 +217,7 @@ def get_font(size, weight='regular'):
             return ImageFont.truetype(fp, size)
     return ImageFont.load_default()
 
-# --- ИНФОГРАФИКА ---
+# --- ИНФОГРАФИКА (ПОЛУПРОЗРАЧНЫЕ ПЛАШКИ) ---
 def add_infographic(base_image, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
     """Накладывает стильный, читаемый текст на готовую карточку."""
     try:
@@ -226,94 +226,54 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # --- НАСТРОЙКИ ЦВЕТА (Правило 60-30-10) ---
         r, g, b = style['text_color']
-        # 30% - Дополнительный цвет (полупрозрачный цвет текста для плашек)
-        plate_fill = (r, g, b, 50)  
-        plate_outline = (r, g, b, 30)
-        # 10% - Акцентный цвет (для кнопок, важных меток)
+        plate_fill = (r, g, b, 25)      # <-- ПРОЗРАЧНОСТЬ УВЕЛИЧЕНА
+        plate_outline = (r, g, b, 15)   # <-- ПРОЗРАЧНОСТЬ УВЕЛИЧЕНА
         ar, ag, ab = style['accent_color']
         accent_fill = (ar, ag, ab, 180)
-        
-        text_fill = (r, g, b, 220)  # Полупрозрачный текст
+        text_fill = (r, g, b, 220)
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
-        # --- ЗАГОЛОВОК КАРТОЧКИ (НАЗВАНИЕ ТОВАРА) ---
         if title:
             title_text = title.upper()[:40]
             title_font = get_font(int(height * 0.035), 'regular')
             tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
             draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
-        # --- ХАРАКТЕРИСТИКИ (ПЛАШКИ ПО БОКАМ) ---
         if features and len(features) > 0:
-            valid_features = [f for f in features if f.get('value') and f['value'] != "НЕТ"]
-            
-            if valid_features:
-                badge_w = int(width * 0.38)
-                badge_h = int(height * 0.10)
-                start_y = int(height * 0.22)
-                gap = int(height * 0.02)
-                for i, feat in enumerate(valid_features[:4]):
-                    bx = margin if i % 2 == 0 else width - margin - badge_w
-                    by = start_y + (i // 2) * (badge_h + gap)
-                    
-                    # Рисуем полупрозрачную плашку
-                    draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
-                    
-                    value = feat.get('value', '')
-                    label = feat.get('label', '')
+            badge_w = int(width * 0.38)
+            badge_h = int(height * 0.10)
+            start_y = int(height * 0.22)
+            gap = int(height * 0.02)
+            for i, feat in enumerate(features[:4]):
+                bx = margin if i % 2 == 0 else width - margin - badge_w
+                by = start_y + (i // 2) * (badge_h + gap)
+                
+                draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
+                
+                value = feat.get('value', '')
+                label = feat.get('label', '')
 
-                    # --- ЗАГОЛОВОК ПЛАШКИ (ВВЕРХУ, НЕ ЖИРНЫЙ) ---
-                    if label and label != "НЕТ":
-                        label_font = get_font(int(height * 0.023), 'regular')
-                        lw = draw.textbbox((0, 0), label, font=label_font)[2]
-                        lx = bx + (badge_w - lw) // 2
-                        draw.text((lx, by + int(height * 0.01)), label, font=label_font, fill=text_fill)
+                if label and label != "НЕТ":
+                    label_font = get_font(int(height * 0.023), 'regular')
+                    lw = draw.textbbox((0, 0), label, font=label_font)[2]
+                    lx = bx + (badge_w - lw) // 2
+                    draw.text((lx, by + int(height * 0.01)), label, font=label_font, fill=text_fill)
+                
+                if value:
+                    max_val_width = badge_w - 20
+                    val_font_size = int(height * 0.028) 
+                    val_font = get_font(val_font_size, 'regular')
                     
-                    # --- ХАРАКТЕРИСТИКА (ВНИЗУ, НЕ ЖИРНАЯ) ---
-                    if value:
-                        max_val_width = badge_w - 20
-                        val_font_size = int(height * 0.028) 
+                    while draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width and val_font_size > 10:
+                        val_font_size -= 1
                         val_font = get_font(val_font_size, 'regular')
-                        
-                        while draw.textbbox((0, 0), value, font=val_font)[2] > max_val_width and val_font_size > 10:
-                            val_font_size -= 1
-                            val_font = get_font(val_font_size, 'regular')
-                        
-                        vw = draw.textbbox((0, 0), value, font=val_font)[2]
-                        vx = bx + (badge_w - vw) // 2
-                        draw.text((vx, by + int(height * 0.055)), value, font=val_font, fill=text_fill)
-        
-        # --- БОНУСЫ (НИЖНИЕ ПЛАШКИ С АКЦЕНТНЫМ ЦВЕТОМ) ---
-        y_bonus = int(height * 0.68)
-        if bonuses and len(bonuses) > 0:
-            for bonus in bonuses[:2]:
-                text = bonus[:35]
-                if not text or text == "НЕТ": continue
                     
-                bonus_font = get_font(int(height * 0.03), 'regular')
-                tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
-                bh = int(height * 0.06)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=accent_fill, outline=None, width=0)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['bg_color'])
-                y_bonus += bh + 10
+                    vw = draw.textbbox((0, 0), value, font=val_font)[2]
+                    vx = bx + (badge_w - vw) // 2
+                    draw.text((vx, by + int(height * 0.055)), value, font=val_font, fill=text_fill)
         
-        # --- ТРИГГЕРЫ (ПЛАШКИ С АКЦИЯМИ) ---
-        if triggers and len(triggers) > 0:
-            for trigger in triggers[:2]:
-                text = trigger[:35]
-                if not text or text == "НЕТ": continue
-                    
-                trigger_font = get_font(int(height * 0.025), 'regular')
-                tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
-                th = int(height * 0.05)
-                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=accent_fill, outline=None, width=0)
-                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['bg_color'])
-                y_bonus += th + 8
-        
-        # --- СБОРКА ---
         final = Image.alpha_composite(base_image, overlay)
         final = final.convert('RGB')
         enhancer = ImageEnhance.Contrast(final)
@@ -326,7 +286,7 @@ def add_infographic(base_image, title, features=None, bonuses=None, triggers=Non
         print(f"❌ Ошибка инфографики: {e}")
     return None
 
-# === ОБРАБОТЧИКИ ===
+# === ОБРАБОТЧИКИ (БЕЗ ИЗМЕНЕНИЙ) ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = str(message.from_user.id)
@@ -379,26 +339,22 @@ def progress_analysis(chat_id, msg_id, user_id):
     photo = user_data[user_id]['photo']
     style_key = user_data[user_id]['style']
     
-    # Шаг 1: Готовая карточка с фронтального ракурса
     bot.edit_message_text("🔎 <b>Анализ: Шаг 1/4 — Создаю карточку</b> (⏱️ ~15 сек)", chat_id, msg_id, parse_mode="HTML")
     base_card_url = retouch_photo(photo, style_key)
     if not base_card_url:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось обработать фото.", chat_id, msg_id, parse_mode="HTML")
         return
     
-    # Шаг 2: Создаём дополнительные ракурсы
     bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю ракурсы</b> (⏱️ ~20 сек)", chat_id, msg_id, parse_mode="HTML")
     left_card_url = retouch_photo(photo, style_key, "angle slightly from the left side, 3/4 view")
     right_card_url = retouch_photo(photo, style_key, "angle slightly from the right side, 3/4 view")
     
-    # Шаг 3: Глубокий AI-анализ
     bot.edit_message_text("🧠 <b>Анализ: Шаг 3/4 — Изучаю товар</b> (⏱️ ~25 сек)", chat_id, msg_id, parse_mode="HTML")
     analysis = deep_analyze_and_generate_questions(base_card_url)
     if not analysis:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось проанализировать товар.", chat_id, msg_id, parse_mode="HTML")
         return
     
-    # Сохраняем результаты
     user_data[user_id]['base_card'] = base_card_url
     user_data[user_id]['left_card'] = left_card_url
     user_data[user_id]['right_card'] = right_card_url
@@ -490,26 +446,27 @@ def finish_ai_mode(chat_id, user_id):
     questions = analysis.get('questions', [])
     style_key = user_data[user_id]['style']
     
-    # --- ЗАГОЛОВОК КАРТОЧКИ ---
-    # Используем самый первый ответ как заголовок, если он короткий
+    # --- ЗАГОЛОВОК ---
     title = "ПРЕМИУМ ТОВАР"
     if answers and len(answers[0]) > 2 and len(answers[0]) < 40:
         title = answers[0].upper()
     elif analysis.get('product_name'):
         title = analysis['product_name'].upper()
 
-    # --- ГЕНЕРИРУЕМ ПЛАШКИ ДЛЯ ВСЕХ ОТВЕТОВ ---
+    # --- ГЕНЕРИРУЕМ ПЛАШКИ ---
     all_features = []
     for i, ans in enumerate(answers):
-        if not ans or ans == "НЕТ": continue
+        # ПРОПУСКАЕМ ОТРИЦАТЕЛЬНЫЕ И ПУСТЫЕ ОТВЕТЫ
+        if not ans or ans.strip().lower() in ["нет", "no", "нету", "отсутствует"]: 
+            continue
         
         question = questions[i] if i < len(questions) else ""
-        
-        # Превращаем вопрос в короткий и понятный заголовок
         label = question_to_label(question)
-        
-        # Очищаем ответ — убираем "Да, " и красиво форматируем
         clean_value = clean_answer(ans, question)
+        
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ДЛЯ КОРОТКИХ БЕССМЫСЛЕННЫХ ОТВЕТОВ
+        if len(clean_value) <= 2 and clean_value.lower() in ["да", "da"]:
+            continue
         
         all_features.append({
             "icon": get_icon_for_label(label),
@@ -517,21 +474,15 @@ def finish_ai_mode(chat_id, user_id):
             "value": clean_value[:25]
         })
 
-    # Если данных нет, добавляем дефолтные (но лучше так не делать)
     if not all_features:
         all_features.append({"icon": "📦", "label": "Товар", "value": "Премиум"})
 
-    # --- РАСПРЕДЕЛЯЕМ ПЛАШКИ ПО КАРТОЧКАМ (до 3 плашек на карточку) ---
+    # --- РАСПРЕДЕЛЯЕМ ПО КАРТОЧКАМ ---
     cards = []
-    # Получаем до 3 разных изображений (фронт, лево, право)
     image_urls = [
         user_data[user_id].get('base_card'),
         user_data[user_id].get('left_card', user_data[user_id].get('base_card')),
         user_data[user_id].get('right_card', user_data[user_id].get('base_card')),
-        # Если карточек меньше 3, ИИ может создать ещё
-        user_data[user_id].get('base_card'), 
-        user_data[user_id].get('base_card'), 
-        user_data[user_id].get('base_card') 
     ]
     
     for i in range(0, len(all_features), 3):
@@ -546,9 +497,7 @@ def finish_ai_mode(chat_id, user_id):
         except:
             continue
         
-        # Для первой карточки добавляем заголовок, для остальных — нет
         card_title = title if i == 0 else None
-        
         card = add_infographic(img, card_title, chunk[:3], None, None, style_key)
         if card:
             cards.append(card)
@@ -559,32 +508,30 @@ def finish_ai_mode(chat_id, user_id):
     else:
         bot.send_message(chat_id, "❌ Ошибка при создании карточек.")
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ДОБАВЬ ИХ ПЕРЕД finish_ai_mode) ---
-
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def question_to_label(question):
-    """Превращает вопрос в короткий заголовок плашки (строго на русском)"""
     if not question: return "Характеристика"
     q = question.lower()
     if 'материал' in q: return 'Материал'
-    if 'модель' in q or 'совместим' in q: return 'Совместимость'
+    if 'модел' in q or 'совместим' in q or 'подходит' in q: return 'Совместимость'
     if 'длина' in q or 'размер' in q: return 'Размер'
     if 'цвет' in q: return 'Цвет'
-    if 'бонус' in q or 'подарок' in q: return 'Бонус'
+    if 'бонус' in q or 'подар' in q: return 'Бонус'
     if 'скидк' in q or 'акци' in q: return 'Акция'
     if 'лучше' in q or 'преимуществ' in q: return 'Преимущество'
     if 'гаранти' in q: return 'Гарантия'
-    # Fallback: первые 3 слова вопроса
     words = question.split()[:3]
     return ' '.join(words)
 
 def clean_answer(answer, question):
-    """Красиво форматирует ответ, убирая 'Да, ' и т.д."""
     ans = answer.strip()
     q = question.lower()
     if 'акци' in q or 'скидк' in q:
-        # Превращаем "Да, 10%" в "Скидка 10%"
         if ans.lower().startswith('да'):
             return ans.replace('Да,', 'Скидка').replace('да,', 'Скидка')
+    # Убираем "Да" если это ответ на вопрос о совместимости
+    if ('совместим' in q or 'подходит' in q) and ans.lower() == 'да':
+        return 'Совместимо'
     return ans
 
 def get_icon_for_label(label):
@@ -598,16 +545,12 @@ def get_icon_for_label(label):
     if 'Гарантия' in label: return '🛡️'
     return '📦'
 
-
 def generate_auto(chat_id, user_id):
-    """Авто-генерация карточек без вопросов"""
     bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
     analysis = user_analysis.get(user_id, {})
     style_key = user_data[user_id]['style']
     
     title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
-    
-    # Генерируем стандартные плашки
     features = [
         {"icon": "🛡️", "label": "Гарантия", "value": "12 месяцев"},
         {"icon": "🚚", "label": "Доставка", "value": "Бесплатно"},
