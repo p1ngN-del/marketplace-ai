@@ -107,16 +107,16 @@ set_bot_commands()
 user_data = {}
 user_analysis = {}
 
-# --- СТИЛИ ФОНОВ ---
+# --- СТИЛИ ФОНОВ (исправлены синтаксические ошибки) ---
 BG_STYLES = {
-    "clean_white": {"name": "🤍 Чистый белый", "prompt": "Clean pure white studio background, professional product photography, soft shadows", "brightness": 250, "text_color": (30, 30, 30), "accent_color": (100, 100, 100)""},
-    "gradient_warm": {"name": "🧡 Теплый градиент", "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel", "brightness": 200, "text_color": (60, 40, 20), "accent_color": (180, 100, 60)""},
-    "dark_luxury": {"name": "🖤 Темная роскошь", "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography", "brightness": 50, "text_color": (255, 255, 255), "accent_color": (180, 180, 180)""},
-    "mint_fresh": {"name": "💚 Мятная свежесть", "prompt": "Soft mint green background, fresh clean look, organic natural product feel", "brightness": 220, "text_color": (20, 60, 40), "accent_color": (80, 160, 120)""},
-    "sky_blue": {"name": "💙 Небесный", "prompt": "Soft sky blue gradient background, airy light feel, tech modern product", "brightness": 210, "text_color": (20, 40, 80), "accent_color": (80, 140, 220)""},
-    "rose_gold": {"name": "🩷 Розовое золото", "prompt": "Rose gold pink background, feminine elegant, soft pink and gold tones", "brightness": 200, "text_color": (80, 30, 40), "accent_color": (200, 100, 120)""},
-    "neon_tech": {"name": "💜 Неоновый", "prompt": "Dark background with neon purple and blue accents, cyberpunk tech style, glowing edges", "brightness": 60, "text_color": (255, 255, 255), "accent_color": (200, 100, 255)""},
-    "wood_natural": {"name": "🤎 Натуральное дерево", "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly", "brightness": 180, "text_color": (60, 40, 20), "accent_color": (160, 120, 80)"}
+    "clean_white": {"name": "🤍 Чистый белый", "prompt": "Clean pure white studio background, professional product photography, soft shadows", "brightness": 250, "text_color": (30, 30, 30), "accent_color": (100, 100, 100)},
+    "gradient_warm": {"name": "🧡 Теплый градиент", "prompt": "Warm gradient background from peach to cream, soft lighting, premium feel", "brightness": 200, "text_color": (60, 40, 20), "accent_color": (180, 100, 60)},
+    "dark_luxury": {"name": "🖤 Темная роскошь", "prompt": "Dark charcoal background, dramatic lighting, luxury premium product photography", "brightness": 50, "text_color": (255, 255, 255), "accent_color": (180, 180, 180)},
+    "mint_fresh": {"name": "💚 Мятная свежесть", "prompt": "Soft mint green background, fresh clean look, organic natural product feel", "brightness": 220, "text_color": (20, 60, 40), "accent_color": (80, 160, 120)},
+    "sky_blue": {"name": "💙 Небесный", "prompt": "Soft sky blue gradient background, airy light feel, tech modern product", "brightness": 210, "text_color": (20, 40, 80), "accent_color": (80, 140, 220)},
+    "rose_gold": {"name": "🩷 Розовое золото", "prompt": "Rose gold pink background, feminine elegant, soft pink and gold tones", "brightness": 200, "text_color": (80, 30, 40), "accent_color": (200, 100, 120)},
+    "neon_tech": {"name": "💜 Неоновый", "prompt": "Dark background with neon purple and blue accents, cyberpunk tech style, glowing edges", "brightness": 60, "text_color": (255, 255, 255), "accent_color": (200, 100, 255)},
+    "wood_natural": {"name": "🤎 Натуральное дерево", "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly", "brightness": 180, "text_color": (60, 40, 20), "accent_color": (160, 120, 80)}
 }
 
 # --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ (Оставлены без изменений для краткости, но они должны быть здесь) ---
