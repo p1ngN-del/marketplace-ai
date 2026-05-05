@@ -1,6 +1,5 @@
 ## 📄 **1. requirements.txt**
 
-```
 flask
 huggingface_hub
 pytelegrambotapi==4.15.0
@@ -8,13 +7,10 @@ dashscope
 flask-login
 Pillow
 requests
-```
-
----
 
 ## 📄 **2. main.py** (ПОЛНЫЙ КОД С ПРЕМИУМ ДИЗАЙНОМ)
 
-```python
+python
 import os
 import sys
 import json
