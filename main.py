@@ -738,12 +738,12 @@ def ask_question(chat_id, user_id, q_index, questions):
     question = questions[q_index]
     
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("⏭️ Propustit vopros", callback_data="skip_question"))
+    markup.add(telebot.types.InlineKeyboardButton("⏭️ Пропустить вопрос", callback_data="skip_question"))
     
     msg = bot.send_message(
         chat_id,
-        f"🤖 <b>Vopros {q_index + 1} iz {len(questions)}:</b>\n\n{question}\n\n"
-        f"Otvette tekstom ili nazhmite 'Propustit'",
+        f"🤖 <b>Вопрос {q_index + 1} из {len(questions)}:</b>\n\n{question}\n\n"
+        f"Ответьте текстом или нажмите «Пропустить»",
         parse_mode="HTML",
         reply_markup=markup
     )
@@ -756,7 +756,7 @@ def process_ai_answer(message, user_id, questions):
     chat_id = message.chat.id
     
     if user_id not in user_analysis:
-        bot.send_message(chat_id, "❌ Sessiya istekla")
+        bot.send_message(chat_id, "❌ Сессия истекла")
         return
     
     # Сохраняем ответ
@@ -771,7 +771,7 @@ def process_ai_answer(message, user_id, questions):
 
 def finish_ai_mode(chat_id, user_id):
     """Финальная генерация после всех вопросов"""
-    bot.send_message(chat_id, "⏳ Sozdaem infografiku...")
+    bot.send_message(chat_id, "⏳ Создаём инфографику...")
     
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
@@ -783,7 +783,7 @@ def finish_ai_mode(chat_id, user_id):
     features = []
     bonuses = []
     triggers = []
-    title = "PREMIUM TOVAR"
+    title = "ПРЕМИУМ ТОВАР"
     
     # Парсим ответы
     for i, ans in enumerate(answers):
@@ -793,11 +793,12 @@ def finish_ai_mode(chat_id, user_id):
         ans_lower = ans.lower()
         
         if i == 0 and len(ans) > 2:  # Материал
-            features.append({"icon": "🔷", "label": "Material", "value": ans[:20]})
-            title = ans[:25].upper()
+            features.append({"icon": "🔷", "label": "Материал", "value": ans[:20]})
+            if len(ans) < 20:
+                title = ans.upper()
         
         elif i == 1 and len(ans) > 2:  # Совместимость
-            features.append({"icon": "✅", "label": "Sovmestimost", "value": ans[:20]})
+            features.append({"icon": "✅", "label": "Совместимость", "value": ans[:20]})
         
         elif i == 2 and len(ans) > 2:  # Бонус
             bonuses.append(f"🎁 {ans[:25]}")
@@ -809,25 +810,25 @@ def finish_ai_mode(chat_id, user_id):
             if len(ans) < 15:
                 title = ans.upper()
             else:
-                features.append({"icon": "⭐", "label": "Preimushchestvo", "value": ans[:20]})
+                features.append({"icon": "⭐", "label": "Преимущество", "value": ans[:20]})
     
     # Дефолты если мало данных
     if len(features) < 2:
-        features.append({"icon": "📦", "label": "Kategoriya", "value": analysis.get('category', 'Tovar')[:20]})
+        features.append({"icon": "📦", "label": "Категория", "value": analysis.get('category', 'Товар')[:20]})
     if not bonuses:
-        bonuses.append("🚚 Bystraya dostavka")
+        bonuses.append("🚚 Быстрая доставка")
     if not triggers:
-        triggers.append("🔥 Hit prodazh")
+        triggers.append("🔥 Хит продаж")
     
     # Генерируем
     if card_url:
         final = add_infographic(card_url, title, features, bonuses, triggers, style_key)
         if final:
-            bot.send_photo(chat_id, final, caption="✅ <b>Infografika gotova!</b>", parse_mode="HTML")
+            bot.send_photo(chat_id, final, caption="✅ <b>Инфографика готова!</b>", parse_mode="HTML")
         else:
-            bot.send_message(chat_id, "❌ Oshibka generatsii")
+            bot.send_message(chat_id, "❌ Ошибка генерации")
     else:
-        bot.send_message(chat_id, "❌ Kartochka ne naydena")
+        bot.send_message(chat_id, "❌ Карточка не найдена")
 
 # === КОНСТРУКТОР ===
 
@@ -867,7 +868,7 @@ def start_constructor(chat_id, user_id):
     style_key = card_data.get('style', 'clean_white')
     
     # Сначала делаем базовую карточку
-    wait_msg = bot.send_message(chat_id, "⏳ Sozdaem bazovuyu kartochku...")
+    wait_msg = bot.send_message(chat_id, "⏳ Создаём базовую карточку...")
     
     retouched = retouch_photo(card_data['photo'], style_key)
     if retouched:
@@ -880,11 +881,11 @@ def start_constructor(chat_id, user_id):
     # Меню конструктора
     markup = telebot.types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        telebot.types.InlineKeyboardButton("📝 Zagolovok", callback_data="con_title"),
-        telebot.types.InlineKeyboardButton("🔷 Kharakteristiki (do 4)", callback_data="con_features"),
-        telebot.types.InlineKeyboardButton("🎁 Bonusy", callback_data="con_bonuses"),
-        telebot.types.InlineKeyboardButton("⏰ Aktsii", callback_data="con_triggers"),
-        telebot.types.InlineKeyboardButton("✨ Sozdat kartochku", callback_data="con_generate")
+        telebot.types.InlineKeyboardButton("📝 Заголовок", callback_data="con_title"),
+        telebot.types.InlineKeyboardButton("🔷 Характеристики (до 4)", callback_data="con_features"),
+        telebot.types.InlineKeyboardButton("🎁 Бонусы", callback_data="con_bonuses"),
+        telebot.types.InlineKeyboardButton("⏰ Акции", callback_data="con_triggers"),
+        telebot.types.InlineKeyboardButton("✨ Создать карточку", callback_data="con_generate")
     )
     
     # Инициализируем данные конструктора
@@ -898,27 +899,27 @@ def start_constructor(chat_id, user_id):
     
     bot.send_message(
         chat_id,
-        "🛠️ <b>Konstruktor kartochki</b>\n\n"
-        "Vyberite elementy dlya dobavleniya.\n"
-        "Kogda vse gotovo — nazhmite 'Sozdat kartochku'.",
+        "🛠️ <b>Конструктор карточки</b>\n\n"
+        "Выберите элементы для добавления.\n"
+        "Когда всё будет готово — нажмите «Создать карточку».",
         parse_mode="HTML",
         reply_markup=markup
     )
 
 # === ТЕКСТОВЫЕ КНОПКИ ===
 
-@bot.message_handler(func=lambda m: m.text == "📸 Sozdat kartochku")
+@bot.message_handler(func=lambda m: m.text == "📸 Создать карточку")
 def btn_create(message):
-    bot.send_message(message.chat.id, "Otpravte foto tovara")
+    bot.send_message(message.chat.id, "Отправьте фото товара")
 
-@bot.message_handler(func=lambda m: m.text == "❓ Pomoshch")
+@bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def btn_help(message):
     bot.send_message(
         message.chat.id,
-        "Otpravte foto → vyberite stil → vyberite rezhim (AI/konstruktor/avto)"
+        "Отправьте фото → выберите стиль → выберите режим (AI/конструктор/авто)"
     )
 
-@bot.message_handler(func=lambda m: m.text == "📊 Admin-panel")
+@bot.message_handler(func=lambda m: m.text == "📊 Админ-панель")
 def btn_admin(message):
     admin_stats(message)
 
