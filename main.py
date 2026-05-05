@@ -176,16 +176,70 @@ def generate_product_description(image_url):
         print(f"Ошибка генерации описания: {e}")
         return None
     return None
+    
+def get_font(size, weight='regular'):
+    """
+    Умная загрузка шрифтов с поддержкой кириллицы.
+    Порядок приоритета: кастомный → системный с кириллицей → встроенный
+    """
+    
+    # 1. Пробуем твои кастомные шрифты
+    custom_fonts = {
+        'bold': ['/app/Font bold.ttf', 'Font bold.ttf', '/app/font_bold.ttf', 'font_bold.ttf'],
+        'regular': ['/app/Font regular.ttf', 'Font regular.ttf', '/app/font_regular.ttf', 'font_regular.ttf', '/app/font.ttf', 'font.ttf']
+    }
+    
+    font_list = custom_fonts.get(weight, custom_fonts['regular'])
+    
+    for font_path in font_list:
+        if os.path.exists(font_path):
+            try:
+                font = ImageFont.truetype(font_path, size)
+                # Проверяем, что шрифт реально поддерживает кириллицу
+                test_text = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+                bbox = font.getbbox(test_text)
+                if bbox and (bbox[2] - bbox[0]) > 0:
+                    print(f"✅ Загружен шрифт: {font_path}")
+                    return font
+            except Exception as e:
+                print(f"⚠️ Не удалось загрузить {font_path}: {e}")
+                continue
+    
+    # 2. Пробуем системные шрифты с гарантированной кириллицей
+    system_fonts = [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+        '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+        '/System/Library/Fonts/Helvetica.ttc',
+        'C:/Windows/Fonts/arial.ttf',
+        'C:/Windows/Fonts/arialbd.ttf',
+    ]
+    
+    for font_path in system_fonts:
+        if os.path.exists(font_path):
+            try:
+                font = ImageFont.truetype(font_path, size)
+                print(f"✅ Загружен системный шрифт: {font_path}")
+                return font
+            except:
+                continue
+    
+    # 3. Последний fallback
+    print("⚠️ Используется стандартный шрифт (кириллица может не работать)")
+    return ImageFont.load_default()
 
 def add_premium_text_to_image(image_url, title, subtitle=""):
     """
     Профессиональное наложение текста на изображение
-    Дизайн в стиле премиум маркетплейсов (как на примере)
+    Гарантированно работает с русским текстом
     """
     try:
         # Загрузка изображения
         if image_url.startswith('http'):
-            response = requests.get(image_url)
+            response = requests.get(image_url, timeout=30)
             img = Image.open(BytesIO(response.content))
         elif image_url.startswith('data:image'):
             base64_data = image_url.split(',')[1]
@@ -194,8 +248,8 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         else:
             img = Image.open(image_url)
         
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
         
         width, height = img.size
         
@@ -204,19 +258,9 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         draw = ImageDraw.Draw(overlay)
         
         # --- НАСТРОЙКА ШРИФТОВ ---
-        try:
-            font_bold = ImageFont.truetype("/app/Font bold.ttf", int(height * 0.08))
-            font_medium = ImageFont.truetype("/app/Font bold.ttf", int(height * 0.045))
-            font_regular = ImageFont.truetype("/app/Font regular.ttf", int(height * 0.035))
-        except:
-            try:
-                font_bold = ImageFont.truetype("Font bold.ttf", int(height * 0.08))
-                font_medium = ImageFont.truetype("Font bold.ttf", int(height * 0.045))
-                font_regular = ImageFont.truetype("Font regular.ttf", int(height * 0.035))
-            except:
-                font_bold = ImageFont.load_default()
-                font_medium = ImageFont.load_default()
-                font_regular = ImageFont.load_default()
+        font_bold = get_font(int(height * 0.08), 'bold')
+        font_medium = get_font(int(height * 0.045), 'bold')
+        font_regular = get_font(int(height * 0.035), 'regular')
         
         # --- ПОДГОТОВКА ТЕКСТА ---
         main_title = title.upper()
@@ -226,14 +270,13 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         else:
             wrapped_title = main_title
         
-        # --- ЗАГОЛОВОК "Интерактивная" (мелкий текст сверху) ---
+        # --- ЗАГОЛОВОК "Премиум" ---
         header_text = "Премиум"
         bbox_header = draw.textbbox((0, 0), header_text, font=font_regular)
         header_width = bbox_header[2] - bbox_header[0]
         header_x = (width - header_width) // 2
         header_y = int(height * 0.05)
         
-        # Рисуем заголовок (красный)
         draw.text(
             (header_x, header_y),
             header_text,
@@ -241,22 +284,22 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
             fill=(220, 60, 60, 255)
         )
         
-        # --- ОСНОВНОЙ ЗАГОЛОВОК (крупный) ---
+        # --- ОСНОВНОЙ ЗАГОЛОВОК ---
         bbox_title = draw.multiline_textbbox((0, 0), wrapped_title, font=font_bold)
         title_width = bbox_title[2] - bbox_title[0]
         title_height = bbox_title[3] - bbox_title[1]
         title_x = (width - title_width) // 2
-        title_y = header_y + 40
+        title_y = header_y + int(height * 0.06)
         
         # Тень заголовка
-        shadow_offset = 4
+        shadow_offset = max(2, int(height * 0.005))
         draw.multiline_text(
             (title_x + shadow_offset, title_y + shadow_offset),
             wrapped_title,
             font=font_bold,
-            fill=(0, 0, 0, 80),
+            fill=(0, 0, 0, 120),
             align='center',
-            spacing=5
+            spacing=int(height * 0.01)
         )
         
         # Основной заголовок (красный)
@@ -266,34 +309,28 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
             font=font_bold,
             fill=(220, 60, 60, 255),
             align='center',
-            spacing=5
+            spacing=int(height * 0.01)
         )
         
         # --- КАПСУЛА С ПРИЗЫВОМ К ДЕЙСТВИЮ ---
-        if subtitle:
-            cta_text = subtitle
-        else:
-            cta_text = "🐾 поймай меня, если сможешь"
+        cta_text = subtitle if subtitle else "🐾 поймай меня, если сможешь"
         
         bbox_cta = draw.textbbox((0, 0), cta_text, font=font_medium)
         cta_width = bbox_cta[2] - bbox_cta[0]
         cta_height = bbox_cta[3] - bbox_cta[1]
         
-        # Позиция капсулы
-        capsule_padding = 25
+        capsule_padding = int(height * 0.03)
         capsule_x = (width - cta_width - capsule_padding * 2) // 2
-        capsule_y = title_y + title_height + 30
+        capsule_y = title_y + title_height + int(height * 0.04)
         
-        # Рисуем красную капсулу
         draw.rounded_rectangle(
             [capsule_x, capsule_y, 
              capsule_x + cta_width + capsule_padding * 2, 
              capsule_y + cta_height + capsule_padding],
-            radius=30,
+            radius=int(height * 0.03),
             fill=(220, 60, 60, 255)
         )
         
-        # Текст в капсуле (белый)
         draw.text(
             (capsule_x + capsule_padding, capsule_y + capsule_padding // 2),
             cta_text,
@@ -301,12 +338,7 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
             fill=(255, 255, 255, 255)
         )
         
-        # --- ХАРАКТЕРИСТИКИ ВОКРУГ ТОВАРА ---
-        # Можно добавить дополнительные блоки текста по бокам
-        # Пока оставляем базовый дизайн
-        
         # --- ФИНАЛЬНОЕ ОБЪЕДИНЕНИЕ ---
-        img = img.convert('RGBA')
         final_img = Image.alpha_composite(img, overlay)
         final_img = final_img.convert('RGB')
         
@@ -321,7 +353,9 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         return output
         
     except Exception as e:
-        print(f"Ошибка наложения текста: {e}")
+        print(f"❌ Ошибка наложения текста: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 # --- ОБРАБОТЧИКИ КОМАНД ---
@@ -549,6 +583,32 @@ def health():
     return {'status': 'ok', 'users': len(user_cards)}, 200
 
 # --- ЗАПУСК ---
+
+# --- ДИАГНОСТИКА ШРИФТОВ ПРИ СТАРТЕ ---
+print("🔍 Проверка шрифтов...")
+test_fonts = ['/app/Font bold.ttf', '/app/font_bold.ttf', 'Font bold.ttf', '/app/font.ttf', 'font.ttf']
+for f in test_fonts:
+    if os.path.exists(f):
+        try:
+            font = ImageFont.truetype(f, 40)
+            bbox = font.getbbox("Тест русского текста")
+            width = bbox[2] - bbox[0] if bbox else 0
+            print(f"✅ {f}: ширина 'Тест' = {width}px")
+        except Exception as e:
+            print(f"❌ {f}: {e}")
+    else:
+        print(f"⚠️ {f}: файл не найден")
+
+# Проверим, какие системные шрифты доступны
+import glob
+system_font_paths = glob.glob('/usr/share/fonts/truetype/**/*.ttf', recursive=True)
+if system_font_paths:
+    print(f"📁 Найдено системных шрифтов: {len(system_font_paths)}")
+    for sf in system_font_paths[:5]:
+        print(f"   → {sf}")
+else:
+    print("⚠️ Системные шрифты не найдены")
+# --- КОНЕЦ ДИАГНОСТИКИ ---
 
 if __name__ == '__main__':
     railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
