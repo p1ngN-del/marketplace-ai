@@ -292,8 +292,13 @@ def choose_text_colors(dominant_colors, bg_brightness):
             'capsule_text': (30, 30, 30, 255),
         }
 
-def add_premium_text_to_image(image_url, title, subtitle=""):
-    """Профессиональное наложение текста с адаптивным дизайном"""
+def add_premium_text_to_image(image_url, title, features=None, bonuses=None, triggers=None):
+    """
+    Создание инфографики с плашками, бейджами и характеристиками
+    features: [{"icon": "✅", "label": "Совместимость", "value": "RayBan"}, ...]
+    bonuses: ["🎁 Подарок: чехол", "🚚 Бесплатная доставка"]
+    triggers: ["⏰ Акция до 31.05", "🔥 Осталось 5 шт"]
+    """
     try:
         # Загрузка изображения
         if image_url.startswith('http'):
@@ -311,193 +316,216 @@ def add_premium_text_to_image(image_url, title, subtitle=""):
         
         width, height = img.size
         
-        # Анализ цветовой гаммы
-        dominant_colors = get_dominant_colors(img)
-        avg_brightness = sum(sum(c[:3]) / 3 for c in dominant_colors) / 3
+        # Анализ фона
+        avg_brightness = get_average_brightness(img)
+        is_light = avg_brightness > 150
         
-        colors = choose_text_colors(dominant_colors, avg_brightness)
+        # Цветовая схема
+        if is_light:
+            # Светлый фон — тёмные элементы
+            COLORS = {
+                'bg_plate': (255, 255, 255, 220),
+                'bg_plate_border': (200, 200, 200, 180),
+                'text_primary': (30, 30, 30, 255),
+                'text_secondary': (80, 80, 80, 255),
+                'accent': (255, 100, 50, 255),  # Оранжево-красный
+                'accent_bg': (255, 240, 230, 230),
+                'bonus_bg': (230, 255, 230, 230),  # Зелёный
+                'trigger_bg': (255, 230, 230, 230),  # Красный
+                'shadow': (0, 0, 0, 40),
+            }
+        else:
+            # Тёмный фон — светлые элементы
+            COLORS = {
+                'bg_plate': (0, 0, 0, 180),
+                'bg_plate_border': (255, 255, 255, 100),
+                'text_primary': (255, 255, 255, 255),
+                'text_secondary': (200, 200, 200, 255),
+                'accent': (255, 200, 50, 255),  # Золотой
+                'accent_bg': (60, 50, 20, 200),
+                'bonus_bg': (20, 60, 20, 200),
+                'trigger_bg': (60, 20, 20, 200),
+                'shadow': (0, 0, 0, 80),
+            }
         
-        # Создаём слои
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # --- АДАПТИВНЫЙ РАЗМЕР ШРИФТА ---
-        def fit_text(text, max_width_ratio, base_size_ratio, weight='bold'):
-            """Подбирает размер шрифта, чтобы текст влезал"""
-            max_width = int(width * max_width_ratio)
-            font_size = int(height * base_size_ratio)
+        # --- ШРИФТЫ ---
+        font_small = get_font(int(height * 0.022), 'regular')
+        font_medium = get_font(int(height * 0.028), 'medium')
+        font_large = get_font(int(height * 0.035), 'bold')
+        font_title = get_font(int(height * 0.055), 'bold')
+        font_premium = get_font(int(height * 0.025), 'regular')
+        
+        margin = int(width * 0.04)
+        plate_padding = int(height * 0.015)
+        
+        y_pos = int(height * 0.03)
+        
+        # --- PREMIUM LABEL ---
+        premium_text = "★ P R E M I U M ★"
+        bbox = draw.textbbox((0, 0), premium_text, font=font_premium)
+        pw = bbox[2] - bbox[0]
+        px = (width - pw) // 2
+        
+        # Фон под PREMIUM
+        pad = 8
+        draw.rounded_rectangle(
+            [px - pad, y_pos - pad, px + pw + pad, y_pos + int(height * 0.035) + pad],
+            radius=15,
+            fill=COLORS['accent_bg'],
+            outline=COLORS['accent'],
+            width=2
+        )
+        draw.text((px, y_pos), premium_text, font=font_premium, fill=COLORS['accent'])
+        y_pos += int(height * 0.055)
+        
+        # --- БЕЙДЖИ ХАРАКТЕРИСТИК (по бокам от товара) ---
+        if features and len(features) > 0:
+            # Левый столбец
+            left_x = margin
+            # Правый столбец  
+            right_x = width - margin
             
-            while font_size > int(height * 0.025):
-                font = get_font(font_size, weight)
-                bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = bbox[2] - bbox[0]
-                
-                if text_width <= max_width:
-                    return font, font_size, text_width
-                
-                font_size -= 1
+            feature_y = int(height * 0.25)
+            feature_height = int(height * 0.12)
+            feature_width = int(width * 0.28)
             
-            return get_font(int(height * 0.025), weight), int(height * 0.025), 0
+            for i, feat in enumerate(features[:4]):  # Макс 4 бейджа
+                # Чередуем лево/право
+                if i % 2 == 0:
+                    fx = left_x
+                else:
+                    fx = right_x - feature_width
+                
+                # Плашка бейджа
+                draw.rounded_rectangle(
+                    [fx, feature_y, fx + feature_width, feature_y + feature_height],
+                    radius=12,
+                    fill=COLORS['bg_plate'],
+                    outline=COLORS['bg_plate_border'],
+                    width=1
+                )
+                
+                # Иконка
+                icon = feat.get('icon', '•')
+                label = feat.get('label', '')
+                value = feat.get('value', '')
+                
+                # Иконка
+                draw.text((fx + 8, feature_y + 5), icon, font=font_medium, fill=COLORS['accent'])
+                
+                # Label (маленький)
+                draw.text((fx + 8, feature_y + int(height * 0.04)), label, 
+                         font=font_small, fill=COLORS['text_secondary'])
+                
+                # Value (крупный)
+                draw.text((fx + 8, feature_y + int(height * 0.065)), value, 
+                         font=font_medium, fill=COLORS['text_primary'])
+                
+                feature_y += feature_height + 10
         
-        # --- ПОДГОТОВКА ЗАГОЛОВКА ---
-        main_title = title.upper().strip()
+        # --- БОНУСЫ (зелёные плашки внизу) ---
+        if bonuses and len(bonuses) > 0:
+            bonus_y = int(height * 0.72)
+            bonus_height = int(height * 0.06)
+            
+            for bonus in bonuses[:2]:  # Макс 2 бонуса
+                bbox = draw.textbbox((0, 0), bonus, font=font_medium)
+                bw = min(bbox[2] - bbox[0] + 20, width - margin * 2)
+                bx = (width - bw) // 2
+                
+                draw.rounded_rectangle(
+                    [bx, bonus_y, bx + bw, bonus_y + bonus_height],
+                    radius=20,
+                    fill=COLORS['bonus_bg'],
+                    outline=(100, 200, 100, 200),
+                    width=1
+                )
+                
+                draw.text((bx + 10, bonus_y + 5), bonus, 
+                         font=font_medium, fill=(30, 100, 30, 255))
+                
+                bonus_y += bonus_height + 8
         
-        # Умный перенос длинных заголовков
-        max_title_width = int(width * 0.85)
-        words = main_title.split()
-        lines = []
-        current_line = ""
+        # --- ТРИГГЕРЫ (красные плашки) ---
+        if triggers and len(triggers) > 0:
+            trigger_y = bonus_y if bonuses else int(height * 0.78)
+            trigger_height = int(height * 0.05)
+            
+            for trigger in triggers[:2]:
+                bbox = draw.textbbox((0, 0), trigger, font=font_small)
+                tw = min(bbox[2] - bbox[0] + 16, width - margin * 2)
+                tx = (width - tw) // 2
+                
+                draw.rounded_rectangle(
+                    [tx, trigger_y, tx + tw, trigger_y + trigger_height],
+                    radius=15,
+                    fill=COLORS['trigger_bg'],
+                    outline=(200, 100, 100, 200),
+                    width=1
+                )
+                
+                draw.text((tx + 8, trigger_y + 4), trigger, 
+                         font=font_small, fill=(150, 30, 30, 255))
+                
+                trigger_y += trigger_height + 6
         
-        for word in words:
-            test = current_line + " " + word if current_line else word
-            font, _, _ = fit_text(test, 0.85, 0.08)
-            bbox = draw.textbbox((0, 0), test, font=font)
-            if bbox[2] - bbox[0] <= max_title_width:
-                current_line = test
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
+        # --- ГЛАВНЫЙ ЗАГОЛОВОК (внизу, крупно) ---
+        if title:
+            title_y = min(trigger_y + 10, int(height * 0.88))
+            
+            # Подложка под заголовок
+            title_bbox = draw.textbbox((0, 0), title.upper(), font=font_title)
+            tw = title_bbox[2] - title_bbox[0]
+            th = title_bbox[3] - title_bbox[1]
+            tx = (width - tw) // 2
+            
+            # Полупрозрачная подложка
+            draw.rounded_rectangle(
+                [tx - 10, title_y - 5, tx + tw + 10, title_y + th + 5],
+                radius=8,
+                fill=COLORS['shadow']
+            )
+            
+            # Тень
+            draw.text((tx + 2, title_y + 2), title.upper(), 
+                     font=font_title, fill=COLORS['shadow'])
+            
+            # Текст
+            draw.text((tx, title_y), title.upper(), 
+                     font=font_title, fill=COLORS['text_primary'])
         
-        if current_line:
-            lines.append(current_line)
+        # --- ФИНАЛ ---
+        final = Image.alpha_composite(img, overlay)
+        final = final.convert('RGB')
         
-        wrapped_title = "\n".join(lines) if lines else main_title
-        
-        # --- МЕТКА "PREMIUM" ---
-        label_text = "PREMIUM"
-        label_font, label_size, _ = fit_text(label_text, 0.3, 0.035, 'regular')
-        
-        bbox_label = draw.textbbox((0, 0), label_text, font=label_font)
-        label_width = bbox_label[2] - bbox_label[0]
-        label_x = (width - label_width) // 2
-        label_y = int(height * 0.04)
-        
-        # Линии вокруг PREMIUM
-        line_len = int(width * 0.08)
-        line_y = label_y + label_size // 2
-        draw.line([(label_x - line_len - 10, line_y), (label_x - 10, line_y)], 
-                  fill=colors['accent'], width=max(1, int(height * 0.003)))
-        draw.line([(label_x + label_width + 10, line_y), (label_x + label_width + line_len + 10, line_y)], 
-                  fill=colors['accent'], width=max(1, int(height * 0.003)))
-        
-        draw.text((label_x, label_y), label_text, font=label_font, fill=colors['accent'])
-        
-        # --- ОСНОВНОЙ ЗАГОЛОВОК ---
-        title_font, title_size, title_width = fit_text(wrapped_title, 0.85, 0.075, 'bold')
-        
-        # Пересчитываем с учётом переноса
-        bbox_title = draw.multiline_textbbox((0, 0), wrapped_title, font=title_font, spacing=4)
-        title_width = bbox_title[2] - bbox_title[0]
-        title_height = bbox_title[3] - bbox_title[1]
-        
-        title_x = (width - title_width) // 2
-        title_y = label_y + int(height * 0.06)
-        
-        # Полупрозрачная подложка под заголовок
-        padding_x = int(width * 0.04)
-        padding_y = int(height * 0.02)
-        bg_left = max(0, title_x - padding_x)
-        bg_top = max(0, title_y - padding_y)
-        bg_right = min(width, title_x + title_width + padding_x)
-        bg_bottom = min(height, title_y + title_height + padding_y)
-        
-        draw.rounded_rectangle(
-            [bg_left, bg_top, bg_right, bg_bottom],
-            radius=int(height * 0.015),
-            fill=colors['overlay']
-        )
-        
-        # Тень заголовка
-        shadow_offset = max(2, int(height * 0.004))
-        draw.multiline_text(
-            (title_x + shadow_offset, title_y + shadow_offset),
-            wrapped_title,
-            font=title_font,
-            fill=colors['shadow'],
-            align='center',
-            spacing=4
-        )
-        
-        # Основной заголовок
-        draw.multiline_text(
-            (title_x, title_y),
-            wrapped_title,
-            font=title_font,
-            fill=colors['primary'],
-            align='center',
-            spacing=4
-        )
-        
-        # --- КАПСУЛА CTA ---
-        cta_text = subtitle if subtitle else "🔥 ХИТ ПРОДАЖ"
-        cta_font, cta_size, cta_width = fit_text(cta_text, 0.8, 0.04, 'medium')
-        
-        # Если капсула слишком широкая — уменьшаем ещё
-        while cta_width > int(width * 0.75) and cta_size > int(height * 0.02):
-            cta_size -= 1
-            cta_font = get_font(cta_size, 'medium')
-            bbox = draw.textbbox((0, 0), cta_text, font=cta_font)
-            cta_width = bbox[2] - bbox[0]
-        
-        bbox_cta = draw.textbbox((0, 0), cta_text, font=cta_font)
-        cta_width = bbox_cta[2] - bbox_cta[0]
-        cta_height = bbox_cta[3] - bbox_cta[1]
-        
-        pad_x = int(height * 0.025)
-        pad_y = int(height * 0.015)
-        capsule_w = cta_width + pad_x * 2
-        capsule_h = cta_height + pad_y * 2
-        
-        capsule_x = (width - capsule_w) // 2
-        capsule_y = title_y + title_height + int(height * 0.04)
-        
-        # Проверяем, не выходит ли капсула за низ изображения
-        if capsule_y + capsule_h > height - int(height * 0.02):
-            capsule_y = height - capsule_h - int(height * 0.02)
-        
-        # Градиентная капсула (имитация через полупрозрачность)
-        draw.rounded_rectangle(
-            [capsule_x, capsule_y, capsule_x + capsule_w, capsule_y + capsule_h],
-            radius=int(height * 0.02),
-            fill=colors['capsule_bg']
-        )
-        
-        # Обводка капсулы
-        draw.rounded_rectangle(
-            [capsule_x + 1, capsule_y + 1, capsule_x + capsule_w - 1, capsule_y + capsule_h - 1],
-            radius=int(height * 0.02),
-            outline=colors['accent'],
-            width=max(1, int(height * 0.002))
-        )
-        
-        # Текст в капсуле
-        draw.text(
-            (capsule_x + pad_x, capsule_y + pad_y),
-            cta_text,
-            font=cta_font,
-            fill=colors['capsule_text']
-        )
-        
-        # --- ФИНАЛЬНОЕ ОБЪЕДИНЕНИЕ ---
-        final_img = Image.alpha_composite(img, overlay)
-        final_img = final_img.convert('RGB')
-        
-        # Улучшение резкости
-        enhancer = ImageEnhance.Sharpness(final_img)
-        final_img = enhancer.enhance(1.2)
+        # Резкость
+        enhancer = ImageEnhance.Sharpness(final)
+        final = enhancer.enhance(1.3)
         
         output = BytesIO()
-        final_img.save(output, format='JPEG', quality=95)
+        final.save(output, format='JPEG', quality=95)
         output.seek(0)
-        
         return output
         
     except Exception as e:
-        print(f"❌ Ошибка наложения текста: {e}")
+        print(f"❌ Ошибка инфографики: {e}")
         import traceback
         traceback.print_exc()
         return None
+
+
+def get_average_brightness(img):
+    """Определяет среднюю яркость изображения"""
+    small = img.copy()
+    small.thumbnail((100, 100))
+    pixels = list(small.getdata())
+    if img.mode == 'RGBA':
+        pixels = [(r, g, b) for r, g, b, a in pixels if a > 128]
+    total = sum(sum(p[:3]) / 3 for p in pixels)
+    return total / len(pixels) if pixels else 128
 
 # --- ОБРАБОТЧИКИ КОМАНД ---
 
@@ -763,15 +791,14 @@ def callback_handler(call):
             bot.answer_callback_query(call.id, "❌ Карточка не найдена")
 
 def process_ai_question(message):
-    """Обработка ответов на AI-вопросы"""
+    """Обработка ответов на AI-вопросы — формируем инфографику"""
     user_id = str(message.from_user.id)
     analysis = user_analysis.get(user_id)
     
     if not analysis:
-        bot.send_message(message.chat.id, "❌ Сессия истекла. Отправьте фото заново.")
+        bot.send_message(message.chat.id, "❌ Сессия истекла.")
         return
     
-    # Сохраняем ответ
     if 'answers' not in analysis:
         analysis['answers'] = []
     analysis['answers'].append(message.text.strip())
@@ -779,7 +806,6 @@ def process_ai_question(message):
     current = analysis.get('current_question', 0)
     questions = analysis.get('questions', [])
     
-    # Следующий вопрос или финал
     if current + 1 < len(questions):
         analysis['current_question'] = current + 1
         next_q = questions[current + 1]
@@ -791,31 +817,76 @@ def process_ai_question(message):
         )
         bot.register_next_step_handler(msg, process_ai_question)
     else:
-        # Все ответы получены — генерируем финальный текст
+        # Все ответы получены — формируем инфографику
         answers = analysis['answers']
         category = analysis.get('category', 'товар')
         
-        # Формируем текст на основе ответов
-        if len(answers) >= 2:
-            title = f"{answers[0].upper()}"
-            subtitle = answers[1] if len(answers) > 1 else "🔥 ХИТ ПРОДАЖ"
-        else:
-            title = answers[0].upper() if answers else "ПРЕМИУМ ТОВАР"
-            subtitle = "🔥 ХИТ ПРОДАЖ"
+        # Формируем структурированные данные для инфографики
+        features = []
+        bonuses = []
+        triggers = []
+        main_title = "ПРЕМИУМ ТОВАР"
         
-        # Ограничиваем длину
-        title = title[:40]
-        subtitle = subtitle[:30]
+        # Парсим ответы в зависимости от вопросов
+        for i, ans in enumerate(answers):
+            ans_lower = ans.lower()
+            
+            if i == 0:  # Первый ответ — обычно про совместимость/тип
+                if len(ans) < 10:
+                    features.append({
+                        "icon": "✅",
+                        "label": "Совместимость",
+                        "value": ans
+                    })
+                else:
+                    main_title = ans[:30].upper()
+                    features.append({
+                        "icon": "📦",
+                        "label": "Тип товара",
+                        "value": category
+                    })
+            
+            elif i == 1:  # Материал/характеристика
+                features.append({
+                    "icon": "🔷",
+                    "label": "Материал",
+                    "value": ans[:20]
+                })
+            
+            elif i == 2:  # Бонус/преимущество
+                bonuses.append(f"🎁 {ans[:25]}")
+            
+            elif i == 3:  # Триггер/акция
+                triggers.append(f"⏰ {ans[:25]}")
         
-        bot.send_message(message.chat.id, f"⏳ Создаю дизайн на основе ваших ответов...")
+        # Добавляем дефолтные, если мало
+        if len(features) < 2:
+            features.append({"icon": "⭐", "label": "Качество", "value": "Премиум"})
+        if not bonuses:
+            bonuses.append("🚚 Быстрая доставка")
+        if not triggers:
+            triggers.append("🔥 Хит продаж")
         
+        # Генерируем карточку
         card_url = user_cards.get(user_id)
         if card_url:
-            final_image = add_premium_text_to_image(card_url, title, subtitle)
+            bot.send_message(message.chat.id, "⏳ Создаю инфографику...")
+            
+            final_image = add_premium_text_to_image(
+                card_url, 
+                title=main_title,
+                features=features,
+                bonuses=bonuses,
+                triggers=triggers
+            )
+            
             if final_image:
                 bot.send_photo(
                     message.chat.id, final_image,
-                    caption=f"✅ <b>Готово!</b>\n\nНа основе ваших ответов:\n📝 <b>{title}</b>\n💬 {subtitle}",
+                    caption=f"✅ <b>Инфографика готова!</b>\n\n"
+                           f"📊 Характеристики: {len(features)}\n"
+                           f"🎁 Бонусы: {len(bonuses)}\n"
+                           f"⏰ Триггеры: {len(triggers)}",
                     parse_mode="HTML"
                 )
             else:
