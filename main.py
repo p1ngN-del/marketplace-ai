@@ -169,7 +169,6 @@ BG_STYLES = {
 
 # --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ---
 def retouch_photo(product_bytes, style_key="clean_white", angle_hint=""):
-    """Создаёт готовую карточку с товаром на выбранном фоне."""
     try:
         base64_image = base64.b64encode(product_bytes).decode('utf-8')
         image_url = f"data:image/jpeg;base64,{base64_image}"
@@ -226,21 +225,21 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
         draw = ImageDraw.Draw(overlay)
         
         r, g, b = style['text_color']
-        plate_fill = (r, g, b, 8)  # Минимальная прозрачность
-        plate_outline = (r, g, b, 5)  # Почти невидимая обводка
+        plate_fill = (r, g, b, 8)
+        plate_outline = (r, g, b, 5)
         text_fill = (r, g, b, 240)
         margin = int(width * 0.05)
         plate_radius = int(height * 0.02)
         
         if title:
             title_text = title.upper()[:40]
-            title_font = get_font(int(height * 0.06), 'bold')  # Массивный заголовок
+            title_font = get_font(int(height * 0.06), 'bold')
             tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
             draw.text(((width - tw) // 2, int(height * 0.03)), title_text, font=title_font, fill=text_fill)
         
         if features and len(features) > 0:
-            badge_w = int(width * 0.85)
-            badge_h = int(height * 0.14)
+            badge_w = int(width * 0.55)   # Уже заголовка
+            badge_h = int(height * 0.10)
             start_y = int(height * 0.28)
             gap = int(height * 0.04)
             
@@ -252,9 +251,9 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
                 
                 text = feat.get('text', '')
                 if text:
-                    font_size = int(height * 0.04)
+                    font_size = int(height * 0.035)
                     font = get_font(font_size, 'regular')
-                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 40 and font_size > 16:
+                    while draw.textbbox((0, 0), text, font=font)[2] > badge_w - 40 and font_size > 14:
                         font_size -= 2
                         font = get_font(font_size, 'regular')
                     tw = draw.textbbox((0, 0), text, font=font)[2]
@@ -275,15 +274,10 @@ def add_infographic(base_image, title, features=None, style_key="clean_white"):
     return None
 
 # === GPT-2 МОДУЛЬ ===
-def generate_description_gpt2(product_data, question, answer):
-    """
-    GPT-2 видит только вопрос и ОРИГИНАЛЬНЫЙ, СМЫСЛОВОЙ ответ пользователя.
-    Он НЕ видит очищенный «Да» или «Совместимо».
-    """
-    # prompt строго требует готовую фразу "Label: Value"
+def generate_description_gpt2(product_data, question, original_answer):
     prompt = (
         f"Товар: {product_data.get('category', 'товар')}.\n"
-        f"Продавец на вопрос: '{question}' ответил: '{answer}'.\n"
+        f"Продавец на вопрос: '{question}' ответил: '{original_answer}'.\n"
         f"Сформулируй КОРОТКУЮ характеристику товара (3-6 слов) на русском языке в формате 'Свойство: Значение'.\n"
         f"Примеры: 'Материал: Натуральная кожа', 'Совместимость: Все модели Ray-Ban', 'Защита: От влаги и УФ', 'Гарантия: 5 лет'.\n"
         f"Характеристика:"
@@ -299,7 +293,6 @@ def generate_description_gpt2(product_data, question, answer):
         generated = response[0]['generated_text'].replace(prompt, '').strip()
         generated = generated.split('\n')[0].replace('"', '').replace("'", "").strip()
         
-        # Фолбэк: если GPT-2 вернул что-то не то, собираем руками из вопроса
         if len(generated.split()) <= 2 or ':' not in generated:
             q = question.lower()
             if 'материал' in q: label = 'Материал'
@@ -309,51 +302,20 @@ def generate_description_gpt2(product_data, question, answer):
             elif 'бонус' in q or 'подар' in q: label = 'Бонус'
             elif 'акци' in q or 'скидк' in q: label = 'Акция'
             else: label = 'Характеристика'
-            generated = f"{label}: {answer}"
+            generated = f"{label}: {original_answer}"
             
         return generated[:40]
     except Exception as e:
         print(f"Ошибка GPT-2: {e}")
-        return f"{answer[:25]}"
+        return f"{original_answer[:25]}"
 
 def clean_answer(answer, question):
-    """
-    Фильтрует только ОТРИЦАТЕЛЬНЫЕ ответы.
-    ВАЖНО: НЕ заменяет "Да" на "Совместимо" и не обрезает "Да, 10%".
-    В GPT-2 отдается ИСХОДНЫЙ ответ.
-    """
     ans = answer.strip()
-    q = question.lower()
-    
-    # удаляем только явно отрицательные ответы
     if ans.lower() in ["нет", "no", "нету", "отсутствует", "бонусов нет"]:
         return None
     if 'нет' in ans.lower() and len(ans) < 10:
         return None
-    
-    # В GPT-2 теперь пойдет сам answer, а не ans
     return answer.strip()
-
-def clean_answer(answer, question):
-    ans = answer.strip()
-    q = question.lower()
-    
-    if ans.lower() in ["нет", "no", "нету", "отсутствует", "бонусов нет"]:
-        return None
-    if 'нет' in ans.lower() and len(ans) < 10:
-        return None
-    
-    if 'акци' in q or 'скидк' in q:
-        if ans.lower().startswith('да'):
-            return ans.replace('Да,', 'Скидка').replace('да,', 'Скидка')
-    
-    if ('совместим' in q or 'подходит' in q) and ans.lower() == 'да':
-        return 'Совместимо'
-    
-    if ans.lower() == 'да':
-        return None
-    
-    return ans
 
 def sort_features_by_priority(features):
     priority_order = {
@@ -361,14 +323,12 @@ def sort_features_by_priority(features):
         'совместимость': 0, 'комплект': 0, 'гарантия': 1,
         'бонус': 2, 'подарок': 2, 'акция': 2, 'скидка': 2, 'доставка': 2,
     }
-    
     def get_priority(feature):
         text = feature.get('text', '').lower()
         for key, priority in priority_order.items():
             if key in text:
                 return priority
         return 3
-    
     features.sort(key=get_priority)
     return features
 
@@ -391,7 +351,6 @@ def generate_gpt2_texts(chat_id, user_id, title):
     for i, ans in enumerate(answers):
         if not ans: 
             continue
-        
         if ans.strip().lower() in ["нет", "no", "нету", "отсутствует", "бонусов нет"]:
             continue
         if 'нет' in ans.lower() and len(ans) < 10:
