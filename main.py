@@ -265,28 +265,21 @@ Return ONLY JSON format:
     return None
 
 def get_font(size, weight='regular'):
-    """Montserrat с fallback"""
     fonts = {
         'bold': [
             '/app/Montserrat-Bold.ttf',
             '/app/montserrat-bold.ttf',
-            '/app/Montserrat Bold.ttf',
             '/app/font_bold.ttf',
-            'Montserrat-Bold.ttf'
         ],
         'medium': [
             '/app/Montserrat-Medium.ttf',
             '/app/montserrat-medium.ttf',
-            '/app/Montserrat Medium.ttf',
             '/app/font.ttf',
-            'Montserrat-Medium.ttf'
         ],
         'regular': [
             '/app/Montserrat-Regular.ttf',
             '/app/montserrat-regular.ttf',
-            '/app/Montserrat Regular.ttf',
             '/app/font_regular.ttf',
-            'Montserrat-Regular.ttf'
         ]
     }
     
@@ -296,28 +289,24 @@ def get_font(size, weight='regular'):
         if os.path.exists(font_path):
             try:
                 font = ImageFont.truetype(font_path, size)
-                # Test cyrillic
-                bbox = font.getbbox("ABVGDE")
-                if bbox and (bbox[2] - bbox[0]) > 0:
-                    print(f"Font loaded: {font_path}")
+                # Правильная проверка кириллицы
+                test_bbox = font.getbbox("ЙЦУКЕНГШЩЗ")
+                if test_bbox and (test_bbox[2] - test_bbox[0]) > 50:
+                    print(f"✅ Шрифт загружен: {font_path}")
                     return font
+                else:
+                    print(f"⚠️ Шрифт без кириллицы: {font_path}")
             except Exception as e:
-                print(f"Font failed {font_path}: {e}")
+                print(f"❌ Ошибка шрифта {font_path}: {e}")
                 continue
     
-    # System fallback
-    system_fonts = [
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-    ]
-    for fp in system_fonts:
+    # Системный fallback
+    for fp in ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+               '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
         if os.path.exists(fp):
-            try:
-                return ImageFont.truetype(fp, size)
-            except:
-                continue
+            return ImageFont.truetype(fp, size)
     
-    print("WARNING: Using default font")
+    print("⚠️ ВНИМАНИЕ: Используется стандартный шрифт (кириллица не гарантируется)")
     return ImageFont.load_default()
 
 def add_infographic(image_url, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
@@ -525,27 +514,29 @@ def send_welcome(message):
     is_admin = user_id == str(ADMIN_ID)
     
     welcome = (
-        "👋 Dobro pozhalovat!\n\n"
-        "Ya sozdayu professionalnye kartochki tovarov.\n\n"
-        "📸 Otpravte foto tovara — ya:\n"
-        "✨ Ubery lishnie obekty\n"
-        "🎨 Sozdam studiynyy fon\n"
-        "📝 Dobavyu infografiku\n\n"
-        "Prosto otpravte foto!"
+        "👋 <b>Добро пожаловать!</b>\n\n"
+        "Я создаю профессиональные карточки товаров для маркетплейсов.\n\n"
+        "📸 <b>Отправьте фото товара</b> — я:\n"
+        "✨ Уберу лишние объекты\n"
+        "🎨 Создам студийный фон\n"
+        "📝 Добавлю инфографику\n\n"
+        "💡 <b>Как это работает:</b>\n"
+        "1. Отправляете фото\n"
+        "2. Выбираете стиль фона\n"
+        "3. Отвечаете на вопросы (или пропускаете)\n"
+        "4. Получаете готовую карточку!"
     )
     
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
-        telebot.types.KeyboardButton("📸 Sozdat kartochku"),
-        telebot.types.KeyboardButton("❓ Pomoshch"),
+        telebot.types.KeyboardButton("📸 Создать карточку"),
+        telebot.types.KeyboardButton("❓ Помощь"),
     ]
     if is_admin:
-        buttons.append(telebot.types.KeyboardButton("📊 Admin-panel"))
+        buttons.append(telebot.types.KeyboardButton("📊 Админ-панель"))
     
     markup.add(*buttons)
     bot.send_message(message.chat.id, welcome, parse_mode="HTML", reply_markup=markup)
-
-@bot.message_handler(commands=['admin'])
 def admin_stats(message):
     user_id = str(message.from_user.id)
     if user_id != str(ADMIN_ID):
@@ -839,6 +830,36 @@ def finish_ai_mode(chat_id, user_id):
         bot.send_message(chat_id, "❌ Kartochka ne naydena")
 
 # === КОНСТРУКТОР ===
+
+def generate_auto(chat_id, user_id):
+    """Автоматическая генерация инфографики"""
+    card_data = user_cards.get(user_id, {})
+    style_key = card_data.get('style', 'clean_white')
+    card_url = card_data.get('card_url')
+    
+    if not card_url:
+        # Создаём карточку, если ещё нет
+        retouched = retouch_photo(card_data.get('photo'), style_key)
+        if retouched:
+            card_url = create_card(retouched, style_key)
+            user_cards[user_id]['card_url'] = card_url
+    
+    if card_url:
+        # Простая инфографика без вопросов
+        features = [
+            {"icon": "⭐", "label": "Качество", "value": "Премиум"},
+            {"icon": "🚚", "label": "Доставка", "value": "Бесплатно"}
+        ]
+        bonuses = ["🎁 Подарок при заказе"]
+        triggers = ["🔥 Хит продаж"]
+        
+        final = add_infographic(card_url, "ПРЕМИУМ ТОВАР", features, bonuses, triggers, style_key)
+        if final:
+            bot.send_photo(chat_id, final, caption="✅ <b>Инфографика готова!</b>", parse_mode="HTML")
+        else:
+            bot.send_message(chat_id, "❌ Ошибка генерации")
+    else:
+        bot.send_message(chat_id, "❌ Карточка не найдена")
 
 def start_constructor(chat_id, user_id):
     """Детальный конструктор карточки"""
