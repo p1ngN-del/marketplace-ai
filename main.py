@@ -31,7 +31,7 @@ dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
 if os.environ.get("BOT_ACTIVE", "true").lower() != "true":
     sys.exit(0)
 
-# --- БАЗА ДАННЫХ (без изменений) ---
+# --- БАЗА ДАННЫХ ---
 DB_PATH = "/app/users.db"
 
 def init_db():
@@ -119,24 +119,166 @@ BG_STYLES = {
     "wood_natural": {"name": "🤎 Натуральное дерево", "prompt": "Light wood texture background, natural organic feel, warm tones, eco friendly", "brightness": 180, "text_color": (60, 40, 20), "accent_color": (160, 120, 80)}
 }
 
-# --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ (Оставлены без изменений для краткости, но они должны быть здесь) ---
-# Вставьте сюда все функции обработки изображений из предыдущего ответа:
-# isolate_product, generate_background, get_font, compose_card, add_infographic
+# --- ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ---
+def isolate_product(product_bytes):
+    """Вырезает товар и возвращает его на прозрачном фоне"""
+    try:
+        base64_image = base64.b64encode(product_bytes).decode('utf-8')
+        image_url = f"data:image/jpeg;base64,{base64_image}"
+        prompt = "Isolate the product on a pure transparent background. Keep only the product itself, no shadows, no extra objects. High quality."
+        messages = [{"role": "user", "content": [{"image": image_url}, {"text": prompt}]}]
+        response = MultiModalConversation.call(api_key=DASHSCOPE_API_KEY, model="qwen-image-edit-plus", messages=messages, n=1, watermark=False, size="1024*1536")
+        if response.status_code == 200:
+            return response.output.choices[0].message.content[0]['image']
+    except Exception as e:
+        print(f"Ошибка изоляции: {e}")
+    return None
 
-def analyze_product_and_generate_questions(image_url):
-    """
-    Глубокий анализ товара с помощью AI.
-    Возвращает словарь с категорией, характеристиками и СПИСКОМ УНИКАЛЬНЫХ вопросов.
-    """
-    # Эта функция будет заменена на новую, улучшенную.
-    pass
+def generate_background(style_key="clean_white"):
+    """Создаёт пустой фон в выбранном стиле"""
+    try:
+        style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
+        prompt = f"Empty {style['prompt']}. NO PRODUCT, just the background texture and lighting. High resolution."
+        messages = [{"role": "user", "content": [{"text": prompt}]}]
+        response = MultiModalConversation.call(api_key=DASHSCOPE_API_KEY, model="qwen-image-2.0-pro", messages=messages, n=1, watermark=False, size="1024*1536")
+        if response.status_code == 200:
+            return response.output.choices[0].message.content[0]['image']
+    except Exception as e:
+        print(f"Ошибка создания фона: {e}")
+    return None
+
+def get_font(size, weight='regular'):
+    fonts = {
+        'bold': ['/app/Montserrat-Bold.ttf', '/app/font_bold.ttf'],
+        'medium': ['/app/Montserrat-Medium.ttf', '/app/font.ttf'],
+        'regular': ['/app/Montserrat-Regular.ttf', '/app/font_regular.ttf']
+    }
+    font_list = fonts.get(weight, fonts['regular'])
+    for font_path in font_list:
+        if os.path.exists(font_path):
+            try:
+                font = ImageFont.truetype(font_path, size)
+                test_bbox = font.getbbox("ЙЦУКЕНГШЩЗ")
+                if test_bbox and (test_bbox[2] - test_bbox[0]) > 50:
+                    return font
+            except:
+                continue
+    for fp in ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
+        if os.path.exists(fp):
+            return ImageFont.truetype(fp, size)
+    return ImageFont.load_default()
+
+def compose_card(product_url, bg_url, style_key="clean_white"):
+    """Объединяет товар с фоном"""
+    try:
+        if product_url.startswith('http'):
+            product_img = Image.open(BytesIO(requests.get(product_url, timeout=30).content)).convert('RGBA')
+        else:
+            product_img = Image.open(BytesIO(requests.get(product_url).content)).convert('RGBA')
+        if bg_url.startswith('http'):
+            bg_img = Image.open(BytesIO(requests.get(bg_url, timeout=30).content)).convert('RGBA')
+        else:
+            bg_img = Image.open(BytesIO(requests.get(bg_url).content)).convert('RGBA')
+        
+        target_height = int(bg_img.height * 0.7)
+        ratio = target_height / product_img.height
+        new_width = int(product_img.width * ratio)
+        product_img = product_img.resize((new_width, target_height), Image.LANCZOS)
+        
+        x = (bg_img.width - new_width) // 2
+        y = (bg_img.height - target_height) // 2
+        bg_img.paste(product_img, (x, y), product_img)
+        return bg_img
+    except Exception as e:
+        print(f"Ошибка компоновки: {e}")
+    return None
+
+def add_infographic(base_image, title, features=None, bonuses=None, triggers=None, style_key="clean_white"):
+    """Создаёт инфографику с полупрозрачными плашками в гамме фона"""
+    try:
+        style = BG_STYLES.get(style_key, BG_STYLES["clean_white"])
+        width, height = base_image.size
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        r, g, b = style['text_color']
+        plate_fill = (r, g, b, 70)
+        plate_outline = (r, g, b, 40)
+        margin = int(width * 0.05)
+        plate_radius = int(height * 0.02)
+        
+        header_text = "ПРЕМИУМ КАЧЕСТВО"
+        header_font = get_font(int(height * 0.025), 'regular')
+        hw = draw.textbbox((0, 0), header_text, font=header_font)[2]
+        draw.text(((width - hw) // 2, int(height * 0.03)), header_text, font=header_font, fill=style['text_color'])
+        
+        if features and len(features) > 0:
+            badge_w = int(width * 0.38)
+            badge_h = int(height * 0.10)
+            start_y = int(height * 0.22)
+            gap = int(height * 0.02)
+            for i, feat in enumerate(features[:4]):
+                bx = margin if i % 2 == 0 else width - margin - badge_w
+                by = start_y + (i // 2) * (badge_h + gap)
+                draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=plate_radius, fill=plate_fill, outline=plate_outline, width=1)
+                value = feat.get('value', '')
+                label = feat.get('label', '')
+                display_value = value[:18] + ".." if len(value) > 18 else value
+                val_font = get_font(int(height * 0.03), 'bold')
+                label_font = get_font(int(height * 0.02), 'regular')
+                draw.text((bx + 10, by + int(height * 0.02)), display_value, font=val_font, fill=style['text_color'])
+                draw.text((bx + 10, by + int(height * 0.06)), label, font=label_font, fill=(r, g, b, 180))
+        
+        y_bonus = int(height * 0.68)
+        if bonuses and len(bonuses) > 0:
+            for bonus in bonuses[:2]:
+                text = bonus[:35]
+                bonus_font = get_font(int(height * 0.03), 'medium')
+                tw = draw.textbbox((0, 0), text, font=bonus_font)[2] + 30
+                bh = int(height * 0.06)
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + bh)], radius=plate_radius, fill=(r, g, b, 40), outline=(r, g, b, 80), width=1)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 8), text, font=bonus_font, fill=style['text_color'])
+                y_bonus += bh + 10
+        
+        if triggers and len(triggers) > 0:
+            for trigger in triggers[:2]:
+                text = trigger[:35]
+                trigger_font = get_font(int(height * 0.025), 'medium')
+                tw = draw.textbbox((0, 0), text, font=trigger_font)[2] + 30
+                th = int(height * 0.05)
+                draw.rounded_rectangle([((width - tw) // 2, y_bonus), ((width - tw) // 2 + tw, y_bonus + th)], radius=plate_radius, fill=(r, g, b, 50), outline=(r, g, b, 100), width=1)
+                draw.text(((width - tw) // 2 + 15, y_bonus + 6), text, font=trigger_font, fill=style['text_color'])
+                y_bonus += th + 8
+        
+        if title:
+            title_text = title.upper()[:40]
+            title_font = get_font(int(height * 0.07), 'bold')
+            tw = draw.textbbox((0, 0), title_text, font=title_font)[2]
+            plate_pad = 12
+            px = (width - tw) // 2 - plate_pad
+            py = int(height * 0.88) - plate_pad
+            draw.rounded_rectangle([px, py, px + tw + plate_pad * 2, py + int(height * 0.07) + plate_pad * 2], radius=plate_radius, fill=(r, g, b, 40))
+            shadow_color = (0, 0, 0, 60)
+            draw.text((px + plate_pad + 2, py + plate_pad + 2), title_text, font=title_font, fill=shadow_color)
+            draw.text((px + plate_pad, py + plate_pad), title_text, font=title_font, fill=style['text_color'])
+        
+        final = Image.alpha_composite(base_image, overlay)
+        final = final.convert('RGB')
+        enhancer = ImageEnhance.Contrast(final)
+        final = enhancer.enhance(1.1)
+        output = BytesIO()
+        final.save(output, format='JPEG', quality=95)
+        output.seek(0)
+        return output
+    except Exception as e:
+        print(f"❌ Ошибка инфографики: {e}")
+    return None
 
 # === ОБРАБОТЧИКИ ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
-    
     welcome_text = (
         "👋 <b>Добро пожаловать!</b>\n\n"
         "Я создаю профессиональные карточки товаров для маркетплейсов.\n\n"
@@ -148,20 +290,10 @@ def start_command(message):
 def handle_photo(message):
     user_id = str(message.from_user.id)
     log_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
-    
-    # 1. Выбор стиля
     markup = telebot.types.InlineKeyboardMarkup(row_width=2)
     for key, style in BG_STYLES.items():
         markup.add(telebot.types.InlineKeyboardButton(style['name'], callback_data=f"style_{key}"))
-    
-    msg = bot.send_message(
-        message.chat.id,
-        "🎨 <b>Выберите стиль фона:</b>",
-        parse_mode="HTML",
-        reply_markup=markup
-    )
-    
-    # Сохраняем фото
+    msg = bot.send_message(message.chat.id, "🎨 <b>Выберите стиль фона:</b>", parse_mode="HTML", reply_markup=markup)
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_path)
     user_data[user_id] = {'photo': downloaded_file, 'style': None}
@@ -171,110 +303,69 @@ def handle_photo(message):
 def callback_handler(call):
     user_id = str(call.from_user.id)
     data = call.data
-    
     if data.startswith("style_"):
         style_key = data.replace("style_", "")
         user_data[user_id]['style'] = style_key
         bot.answer_callback_query(call.id, "✅ Стиль выбран")
-        
-        # Предлагаем режимы работы
         markup = telebot.types.InlineKeyboardMarkup(row_width=1)
         markup.add(
             telebot.types.InlineKeyboardButton("🤖 AI Вопросы", callback_data="mode_ai"),
             telebot.types.InlineKeyboardButton("✨ Авто-генерация", callback_data="mode_auto"),
             telebot.types.InlineKeyboardButton("🛠️ Конструктор", callback_data="mode_manual")
         )
-        bot.edit_message_text(
-            "🎯 <b>Выберите режим работы:</b>",
-            call.message.chat.id, call.message.message_id,
-            parse_mode="HTML", reply_markup=markup
-        )
-    
+        bot.edit_message_text("🎯 <b>Выберите режим работы:</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
     elif data == "mode_ai":
         bot.answer_callback_query(call.id)
         run_ai_mode(call.message, user_id)
-        
-    # ... (остальные callback'и)
+    # остальные коллбэки можно добавить позже
 
 def run_ai_mode(message, user_id):
-    """Запускает умный анализ и генерацию вопросов."""
     chat_id = message.chat.id
-    
-    # Сообщение о начале анализа
     status_msg = bot.send_message(chat_id, "🔎 <b>Начинаю анализ товара...</b>")
-    
-    # Выполняем анализ с детальным описанием этапов
     progress_analysis(chat_id, status_msg.message_id, user_id)
 
 def progress_analysis(chat_id, msg_id, user_id):
-    """Поэтапно обновляет статус анализа."""
-    
     photo = user_data[user_id]['photo']
     style_key = user_data[user_id]['style']
-    
-    # Этап 1: Изоляция
     bot.edit_message_text("🔎 <b>Анализ: Шаг 1/4 — Выделяю товар</b> (⏱️ ~10 сек)", chat_id, msg_id, parse_mode="HTML")
     isolated_url = isolate_product(photo)
     if not isolated_url:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось обработать фото.", chat_id, msg_id, parse_mode="HTML")
         return
-    
-    # Этап 2: Фон
     bot.edit_message_text("🔎 <b>Анализ: Шаг 2/4 — Создаю фон</b> (⏱️ ~15 сек)", chat_id, msg_id, parse_mode="HTML")
     bg_url = generate_background(style_key)
     if not bg_url:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось создать фон.", chat_id, msg_id, parse_mode="HTML")
         return
-    
-    # Этап 3: Сборка
     bot.edit_message_text("🔎 <b>Анализ: Шаг 3/4 — Собираю карточку</b> (⏱️ ~5 сек)", chat_id, msg_id, parse_mode="HTML")
     base_card = compose_card(isolated_url, bg_url)
     if not base_card:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось собрать карточку.", chat_id, msg_id, parse_mode="HTML")
         return
-    
-    # Этап 4: Глубокий AI-анализ и генерация вопросов
     bot.edit_message_text("🧠 <b>Анализ: Шаг 4/4 — Изучаю товар и придумываю вопросы</b> (⏱️ ~25 сек)", chat_id, msg_id, parse_mode="HTML")
     analysis = deep_analyze_and_generate_questions(isolated_url)
-    
     if not analysis:
         bot.edit_message_text("❌ <b>Ошибка:</b> не удалось проанализировать товар.", chat_id, msg_id, parse_mode="HTML")
         return
-    
-    # Сохраняем результаты
     user_data[user_id]['isolated'] = isolated_url
     user_data[user_id]['base_card'] = base_card
     user_analysis[user_id] = analysis
     user_analysis[user_id]['answers'] = []
     user_analysis[user_id]['current_q'] = 0
-    
     questions = analysis.get('questions', [])
     num_questions = len(questions)
-    
-    # Завершающее сообщение
     bot.edit_message_text(
-        f"✅ <b>Анализ завершён!</b>\n\n"
-        f"📦 <b>Категория:</b> {analysis.get('category', 'Товар')}\n"
-        f"🎯 <b>Целевая аудитория:</b> {analysis.get('target_audience', 'Не определена')}\n"
-        f"❓ <b>Подготовлено вопросов:</b> {num_questions}\n\n"
-        f"<i>Начинаю опрос...</i>",
+        f"✅ <b>Анализ завершён!</b>\n\n📦 <b>Категория:</b> {analysis.get('category', 'Товар')}\n🎯 <b>Целевая аудитория:</b> {analysis.get('target_audience', 'Не определена')}\n❓ <b>Подготовлено вопросов:</b> {num_questions}\n\n<i>Начинаю опрос...</i>",
         chat_id, msg_id, parse_mode="HTML"
     )
-    
-    # Запускаем первый вопрос
     ask_next_question(chat_id, user_id)
 
 def deep_analyze_and_generate_questions(image_url):
-    """
-    Глубокий анализ товара и генерация уникальных вопросов.
-    """
     prompt = """You are an expert e-commerce strategist. Analyze the product in the image and provide a detailed JSON response.
-
 RESPOND ONLY WITH VALID JSON.
-
 {
-  "category": "string, product category in Russian (e.g., 'Наушники')",
-  "target_audience": "string, target audience in Russian (e.g., 'Молодежь, геймеры')",
+  "category": "string, product category in Russian",
+  "target_audience": "string, target audience in Russian",
   "key_features": ["string, main feature 1", "..."],
   "questions": [
     "string, unique question 1 in Russian",
@@ -282,48 +373,37 @@ RESPOND ONLY WITH VALID JSON.
     "... at least 5 questions, more if product is complex"
   ]
 }
-
 Questions should help the seller create a compelling marketplace card.
-They MUST be:
-- UNIQUE for this specific product category.
-- Focused on MATERIALS, COMPATIBILITY, BONUSES, PROMOTIONS, COMPETITIVE ADVANTAGES.
-- At least 5 questions long. For complex products (like electronics), generate 7-10 questions.
+They MUST be UNIQUE for this specific product category.
+Focused on MATERIALS, COMPATIBILITY, BONUSES, PROMOTIONS, COMPETITIVE ADVANTAGES.
+At least 5 questions long. For complex products (like electronics), generate 7-10 questions.
 """
-    
     try:
-        base64_image = base64.b64encode(requests.get(image_url).content).decode('utf-8') if image_url.startswith('http') else None
+        if image_url.startswith('http'):
+            base64_image = base64.b64encode(requests.get(image_url).content).decode('utf-8')
+        else:
+            base64_image = None
         if not base64_image: return None
-        
         messages = [{"role": "user", "content": [{"image": f"data:image/jpeg;base64,{base64_image}"}, {"text": prompt}]}]
         response = MultiModalConversation.call(api_key=DASHSCOPE_API_KEY, model="qwen-vl-max", messages=messages)
-        
         if response.status_code == 200:
             text = response.output.choices[0].message.content[0]['text']
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
     except Exception as e:
-        print(f"Deep analysis error: {e}")
+        print(f"Ошибка глубокого анализа: {e}")
     return None
 
 def ask_next_question(chat_id, user_id):
-    """Задаёт следующий вопрос пользователю."""
     analysis = user_analysis.get(user_id, {})
     questions = analysis.get('questions', [])
     current_q = analysis.get('current_q', 0)
-    
     if current_q < len(questions):
         question = questions[current_q]
-        
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("⏭️ Пропустить вопрос", callback_data="skip_question"))
-        
-        bot.send_message(
-            chat_id,
-            f"🤖 <b>Вопрос {current_q + 1} из {len(questions)}</b>\n\n{question}",
-            parse_mode="HTML",
-            reply_markup=markup
-        )
+        bot.send_message(chat_id, f"🤖 <b>Вопрос {current_q + 1} из {len(questions)}</b>\n\n{question}", parse_mode="HTML", reply_markup=markup)
     else:
         finish_ai_mode(chat_id, user_id)
 
@@ -349,19 +429,15 @@ def handle_answer(message):
         bot.send_message(message.chat.id, "Пожалуйста, начните с отправки фото.")
 
 def finish_ai_mode(chat_id, user_id):
-    """Завершает диалог и генерирует итоговые карточки."""
     bot.send_message(chat_id, "⏳ Формирую итоговые карточки...")
-    
     analysis = user_analysis.get(user_id, {})
     answers = analysis.get('answers', [])
     base_card = user_data[user_id]['base_card']
     style_key = user_data[user_id]['style']
-    
     features = []
     bonuses = []
     triggers = []
     title = analysis.get('product_name', 'ПРЕМИУМ ТОВАР').upper()
-
     for i, ans in enumerate(answers):
         if not ans: continue
         if i == 0 and len(ans) > 2: features.append({"icon": "🔷", "label": "Материал", "value": ans[:20]})
@@ -369,11 +445,9 @@ def finish_ai_mode(chat_id, user_id):
         elif i == 2 and len(ans) > 2: bonuses.append(f"🎁 {ans[:25]}")
         elif i == 3 and len(ans) > 2: triggers.append(f"⏰ {ans[:25]}")
         elif len(ans) > 2: features.append({"icon": "⭐", "label": analysis.get('key_features', [""])[0][:20] if analysis.get('key_features') else "Характеристика", "value": ans[:20]})
-
     if len(features) < 2: features.append({"icon": "📦", "label": "Категория", "value": analysis.get('category', 'Товар')[:20]})
     if not bonuses: bonuses.append("🚚 Быстрая доставка")
     if not triggers: triggers.append("🔥 Хит продаж")
-
     cards = []
     card1 = add_infographic(base_card.copy(), title, features[:2], None, None, style_key)
     if card1: cards.append(card1)
@@ -381,7 +455,6 @@ def finish_ai_mode(chat_id, user_id):
     if card2: cards.append(card2)
     card3 = add_infographic(base_card.copy(), None, None, bonuses, triggers, style_key)
     if card3: cards.append(card3)
-
     if cards:
         for i, card in enumerate(cards):
             bot.send_photo(chat_id, card, caption=f"✅ Карточка {i+1}/3")
