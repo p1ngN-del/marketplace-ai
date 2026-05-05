@@ -18,10 +18,14 @@ COPY requirements.txt .
 # Устанавливаем Python-пакеты
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем шрифты (твои кастомные)
+# Копируем шрифты
+COPY Montserrat-Bold.ttf /app/
+COPY Montserrat-Medium.ttf /app/
+COPY Montserrat-Regular.ttf /app/
+COPY Montserrat-Black.ttf /app/
+COPY font.ttf /app/
 COPY font_bold.ttf /app/
 COPY font_regular.ttf /app/
-COPY font.ttf /app/
 
 # Копируем код
 COPY main.py .
